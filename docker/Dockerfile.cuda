@@ -1,0 +1,92 @@
+# ---------- base stage ----------
+FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base
+
+WORKDIR /app
+
+# Install system dependencies and Python 3.12
+RUN apt-get update && apt-get install -y \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
+    telnet \
+    vim \
+    socat \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    curl \
+    git \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3
+#    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN pip3 install uv --break-system-packages
+
+# Copy dependency files
+COPY pyproject.toml setup.py ./
+
+# Copy wallet files to /root/.bittensor/wallets
+RUN mkdir -p /root/.bittensor/wallets
+COPY docker/wallets/miner /root/.bittensor/wallets/miner
+
+# Accept venv name as build argument (unique per container)
+ARG VENV_NAME=.venv-docker
+
+# Create virtual environment with custom name for docker
+RUN uv venv $VENV_NAME
+
+# Set environment variable to use the venv
+ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
+
+# Sync base dependencies with uv
+RUN uv sync
+
+# Clone and install fiber package from git repository
+RUN git clone --branch production --depth 1 https://github.com/rayonlabs/fiber.git /tmp/fiber && \
+    uv pip install -p $VENV_NAME --system "/tmp/fiber[chain]" && \
+    rm -rf /tmp/fiber
+
+# ---------- vllm stage ----------
+FROM base AS with-vllm
+ARG VENV_NAME=.venv-docker
+ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
+#RUN uv pip install --system -e ".[vllm]"
+
+# ---------- llamacpp stage ----------
+FROM base AS with-llamacpp
+ARG VENV_NAME=.venv-docker
+ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
+#RUN uv pip install --system -e ".[llamacpp]"
+
+# ---------- ollama stage ----------
+FROM base AS with-ollama
+ARG VENV_NAME=.venv-docker
+ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
+#RUN uv pip install --system -e ".[ollama]"
+
+
+# ---------- final stage ----------
+FROM with-${OPTIONAL_DEPS:-llamacpp} AS final
+ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
+
+ARG OPTIONAL_DEPS=llamacpp
+
+# Copy application code (will be overridden by volume mount in docker-compose)
+COPY . .
+
+# Copy nop.sh and make it executable
+COPY docker/nop.sh /app/docker/nop.sh
+RUN chmod +x /app/docker/nop.sh
+
+# Copy prompt.sh for PS1 customization
+COPY docker/prompt.sh /etc/profile.d/prompt.sh
+
+# Expose port
+EXPOSE 8000
+
+# Run the miner
+#CMD ["python", "miner/main.py"]
+#CMD ["tail", "-f", "/dev/null"]
+CMD ["/app/docker/nop.sh"]
