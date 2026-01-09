@@ -16,10 +16,19 @@ Quick reference for setting up a miner on the Loosh Inference Subnet with suppor
 ```bash
 git clone https://github.com/loosh-ai/loosh-inference-subnet.git
 cd loosh-inference-subnet
-python -m venv .venv
+
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or
+pip install uv
+
+# Install dependencies (automatically creates virtual environment)
+uv sync
+
+# Activate virtual environment
+source .venv/bin/activate  # Linux/Mac
+# or
 .venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Linux/Mac
-pip install -e .
 ```
 
 ### 2. Configure Environment

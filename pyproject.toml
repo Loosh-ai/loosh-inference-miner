@@ -17,7 +17,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "bittensor==9.12.1",
+    "bittensor>=10.0.0",
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
     "httpx>=0.26.0",
@@ -42,12 +42,15 @@ vllm = [
     "vllm>=0.2.0",
     "torch>=2.2.0",
     "transformers>=4.37.0",
+    "openai>=1.0.0",
 ]
 ollama = [
     "ollama>=0.6.0",
+    "openai>=1.0.0",
 ]
 llamacpp = [
     "llama-cpp-python>=0.2.0",
+    "openai>=1.0.0",
 ]
 # All backends
 all = [
@@ -55,6 +58,7 @@ all = [
     "torch>=2.2.0",
     "transformers>=4.37.0",
     "llama-cpp-python>=0.2.0",
+    "openai>=1.0.0",
 ]
 # Development dependencies
 dev = [

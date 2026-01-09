@@ -71,4 +71,6 @@ def get_backend(name: str, config: Any) -> LLMService:
     return BACKENDS[name](config)
 
 
-__all__ = ["LLMService", "get_backend", "get_backends", "BACKENDS"]
+from miner.core.llms.LLMService import LLMResponse
+
+__all__ = ["LLMService", "LLMResponse", "get_backend", "get_backends", "BACKENDS"]
