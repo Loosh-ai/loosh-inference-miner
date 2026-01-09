@@ -1,0 +1,244 @@
+version: "1.0.0"
+
+compute_spec:
+
+
+  # --- miner spec for LLM inference on Bittensor (no vision) ---
+  miner:
+    # Design goals:
+    # - ReAct + tool calling via prompt/template (JSON-friendly instruct models)
+    # - large context where VRAM permits
+    # - runnable on vLLM, TGI, llama.cpp / Ollama (via GGUF)
+    #
+    # NOTE: "recommended_max_context" is an operational default for VRAM safety.
+    # You can raise it if you use paged KV / quantized KV / shorter batch sizes.
+
+    cpu:
+      min_cores: 8
+      min_speed: 2.8
+      recommended_cores: 16
+      recommended_speed: 3.5
+      architecture: "x86_64"
+
+    gpu:
+      required: true
+
+      # GPU tiers (requested): RTX 5080 -> A10 -> A100 -> H100
+      # compute capability values come from NVIDIA's official table.
+      profiles:
+        rtx_5080_16gb:
+          min_vram: 16
+          recommended_vram: 16
+          min_compute_capability: 12.0
+          recommended_compute_capability: 12.0
+          recommended_gpu: "GeForce RTX 5080 16GB"
+          recommended_max_context: 16384
+
+        a10_24gb:
+          min_vram: 24
+          recommended_vram: 24
+          min_compute_capability: 8.6
+          recommended_compute_capability: 8.6
+          recommended_gpu: "NVIDIA A10 24GB"
+          recommended_max_context: 32768
+
+        a100_40gb:
+          min_vram: 40
+          recommended_vram: 40
+          min_compute_capability: 8.0
+          recommended_compute_capability: 8.0
+          recommended_gpu: "NVIDIA A100 40GB"
+          recommended_max_context: 65536
+
+        a100_80gb:
+          min_vram: 80
+          recommended_vram: 80
+          min_compute_capability: 8.0
+          recommended_compute_capability: 8.0
+          recommended_gpu: "NVIDIA A100 80GB"
+          recommended_max_context: 131072
+
+        h100_80gb:
+          min_vram: 80
+          recommended_vram: 80
+          min_compute_capability: 9.0
+          recommended_compute_capability: 9.0
+          recommended_gpu: "NVIDIA H100 80GB"
+          recommended_max_context: 131072
+
+    memory:
+      # system RAM (host) is important for large-context + large model weights (esp. GGUF)
+      min_ram: 64
+      min_swap: 8
+      recommended_swap: 16
+      ram_type: "DDR5"
+
+    storage:
+      # enough room for multiple quants + tokenizer caches + logs
+      min_space: 500
+      recommended_space: 1500
+      type: "SSD"
+      min_iops: 2000
+      recommended_iops: 8000
+
+    os:
+      name: "Ubuntu"
+      version: 22.04
+
+    network_spec:
+      bandwidth:
+        download: 200
+        upload: 50
+
+    # --- Model allowlist by GPU profile ---
+    # Each entry includes:
+    # - base: canonical model
+    # - quants: HuggingFace repos appropriate for vLLM/TGI (AWQ/GPTQ/FP8) and llama.cpp/Ollama (GGUF)
+    # - license: quick tag; you still need to comply with each model’s terms
+    model_allowlist:
+
+      rtx_5080_16gb:
+        - id: "phi-3.5-mini-instruct"
+          base: "microsoft/Phi-3.5-mini-instruct"
+          license: "MIT"
+          tool_calling: "prompt-driven (ReAct / JSON); good structured outputs"
+          max_context_advertised: 128000
+          quants:
+            gguf:
+              - "QuantFactory/Phi-3.5-mini-instruct-GGUF"
+              - "bartowski/Phi-3.5-mini-instruct-GGUF"
+            awq_int4:
+              - "jester6136/Phi-3.5-mini-instruct-awq"
+
+        - id: "qwen2.5-7b-instruct"
+          base: "Qwen/Qwen2.5-7B-Instruct"
+          license: "Apache-2.0"
+          tool_calling: "strong JSON / schema-following; ReAct-friendly"
+          max_context_advertised: 131072
+          quants:
+            awq_int4:
+              - "Qwen/Qwen2.5-7B-Instruct-AWQ"
+            gptq_int4:
+              - "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
+            gguf:
+              - "Qwen/Qwen2.5-7B-Instruct-GGUF"
+              - "bartowski/Qwen2.5-7B-Instruct-GGUF"
+
+        - id: "llama3.1-8b-instruct"
+          base: "meta-llama/Llama-3.1-8B-Instruct"
+          license: "Llama-3.1 (custom)"
+          gated: true
+          tool_calling: "prompt-driven (ReAct / function-call formats)"
+          max_context_advertised: 128000
+          quants:
+            awq_int4:
+              - "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
+            gguf:
+              - "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF"
+
+      a10_24gb:
+        - id: "mistral-nemo-instruct-2407"
+          base: "mistralai/Mistral-Nemo-Instruct-2407"
+          license: "Apache-2.0"
+          tool_calling: "good instruction following; ReAct-friendly"
+          quants:
+            fp8_vllm:
+              - "RedHatAI/Mistral-Nemo-Instruct-2407-FP8"
+
+        - id: "qwen2.5-14b-instruct"
+          base: "Qwen/Qwen2.5-14B-Instruct"
+          license: "Apache-2.0"
+          tool_calling: "strong JSON / schema-following; ReAct-friendly"
+          max_context_advertised: 131072
+          quants:
+            awq_int4:
+              - "Qwen/Qwen2.5-14B-Instruct-AWQ"
+            gptq_int4:
+              - "Qwen/Qwen2.5-14B-Instruct-GPTQ-Int4"
+            gguf:
+              - "Qwen/Qwen2.5-14B-Instruct-GGUF"
+
+        - id: "qwen2.5-coder-14b-instruct"
+          base: "Qwen/Qwen2.5-Coder-14B-Instruct"
+          license: "Apache-2.0"
+          tool_calling: "excellent for tool-use/code; ReAct-friendly"
+          quants:
+            awq_int4:
+              - "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
+
+      a100_40gb:
+        - id: "qwen2.5-32b-instruct"
+          base: "Qwen/Qwen2.5-32B-Instruct"
+          license: "Apache-2.0"
+          tool_calling: "strong reasoning + JSON; ReAct-friendly"
+          max_context_advertised: 131072
+          quants:
+            awq_int4:
+              - "Qwen/Qwen2.5-32B-Instruct-AWQ"
+            gptq_int4:
+              - "Qwen/Qwen2.5-32B-Instruct-GPTQ-Int4"
+            gguf:
+              - "Qwen/Qwen2.5-32B-Instruct-GGUF"
+
+      a100_80gb:
+        - id: "llama3.1-70b-instruct"
+          base: "meta-llama/Llama-3.1-70B-Instruct"
+          license: "Llama-3.1 (custom)"
+          gated: true
+          tool_calling: "strong general reasoning; ReAct-friendly"
+          max_context_advertised: 128000
+          quants:
+            awq_int4:
+              - "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
+            gguf:
+              - "bartowski/Meta-Llama-3.1-70B-Instruct-GGUF"
+
+        - id: "qwen2.5-72b-instruct-awq"
+          base: "Qwen/Qwen2.5-72B-Instruct-AWQ"
+          license: "Apache-2.0 (per repo)"
+          tool_calling: "excellent structured outputs; ReAct-friendly"
+          max_context_advertised: 131072
+          quants:
+            awq_int4:
+              - "Qwen/Qwen2.5-72B-Instruct-AWQ"
+
+        - id: "mixtral-8x22b-instruct"
+          base: "mistralai/Mixtral-8x22B-Instruct-v0.1"
+          license: "Apache-2.0"
+          tool_calling: "explicit function-calling examples"
+          max_context_advertised: 65536
+          quants:
+            awq_int4:
+              - "MaziyarPanahi/Mixtral-8x22B-Instruct-v0.1-AWQ"
+            gguf:
+              - "MaziyarPanahi/Mixtral-8x22B-Instruct-v0.1-GGUF"
+
+      h100_80gb:
+        # Typically same allowlist as A100 80GB, but H100 allows higher throughput / batch.
+        - id: "llama3.1-70b-instruct"
+          base: "meta-llama/Llama-3.1-70B-Instruct"
+          license: "Llama-3.1 (custom)"
+          gated: true
+          tool_calling: "strong general reasoning; ReAct-friendly"
+          max_context_advertised: 128000
+          quants:
+            awq_int4:
+              - "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
+
+        - id: "qwen2.5-72b-instruct-awq"
+          base: "Qwen/Qwen2.5-72B-Instruct-AWQ"
+          license: "Apache-2.0 (per repo)"
+          tool_calling: "excellent structured outputs; ReAct-friendly"
+          max_context_advertised: 131072
+          quants:
+            awq_int4:
+              - "Qwen/Qwen2.5-72B-Instruct-AWQ"
+
+        - id: "mixtral-8x22b-instruct"
+          base: "mistralai/Mixtral-8x22B-Instruct-v0.1"
+          license: "Apache-2.0"
+          tool_calling: "explicit function-calling examples"
+          max_context_advertised: 65536
+          quants:
+            awq_int4:
+              - "MaziyarPanahi/Mixtral-8x22B-Instruct-v0.1-AWQ"

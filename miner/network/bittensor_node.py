@@ -11,7 +11,8 @@ import yaml, os
 from fiber.chain.chain_utils import load_hotkey_keypair, load_coldkeypub_keypair
 
 # Import miner config
-from miner.config.config import MinerConfig, get_miner_config
+from miner.config.config import MinerConfig
+from miner.config.shared_config import get_miner_config
 
 from miner.network.axon import LooshSubnetSubtensor
 
@@ -27,17 +28,8 @@ themecolor = 'red'
 only_success = True
 
 # CONFIG-TEST [
-
-from miner.test_config import create_bittensor_test_config
-
-def load_config_yaml(config_path: str = "test_config.yaml") -> Dict[str, Any]:
-    """Load test configuration from YAML file."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Test config file not found: {config_path}")
-    
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
+# Note: test_config.yaml is no longer required - we use .env files via MinerConfig
+# The test_config functionality is kept for backward compatibility but not used in production
 # CONFIG-TEST ]
 # TASKS [
 
@@ -351,27 +343,25 @@ class BittensorNode:
 
         self._port = port
 
-        # LOAD CONFIG (TEST)
-
         # CONFIG REFACTOR [
-
-        # TODO: That is a test config, need refactoring: single config architecture for miner and validator
-
-        yaml_config = load_config_yaml()
-        self.config_orig = self.config
-        self.config = create_bittensor_test_config(yaml_config)
-
-        print(self.config.wallet)
-
-#        if not hasattr(self.config_orig, "wallet"):
-#            self.config_orig.wallet = WalletConfig
-
-        print(self.config_orig.wallet)
-
-        if hasattr(self.config_orig, "wallet"):
-            self.config.wallet.name = self.config_orig.wallet_name
-            self.config.wallet.hotkey = self.config_orig.hotkey_name
-
+        # Convert our NodeConfig to bittensor config object
+        # The self.config at this point is a NodeConfig wrapper from create_node()
+        # We need to create a proper bt.config() object for Bittensor SDK
+        # (bt is already imported at module level)
+        
+        bt_config = bt.config()
+        bt_config.netuid = self.config.netuid
+        bt_config.subtensor.network = self.config.subtensor_network
+        bt_config.subtensor.chain_endpoint = self.config.subtensor_address
+        bt_config.wallet.name = self.config.wallet_name
+        bt_config.wallet.hotkey = self.config.hotkey_name
+        bt_config.wallet.path = "~/.bittensor/wallets/"
+        
+        # Set axon port
+        bt_config.axon = bt.axon.config()
+        bt_config.axon.port = port
+        
+        self.config = bt_config
         config = self.config
 
         # CONFIG REFACTOR ]
@@ -379,7 +369,9 @@ class BittensorNode:
         # CREATE SUBTENSOR 
 
         # The subtensor is our connection to the Bittensor blockchain.
-        self.subtensor = LooshSubnetSubtensor(network='local', config=self.config)
+        # Use the network from config
+        network = self.config.subtensor.network
+        self.subtensor = LooshSubnetSubtensor(network=network, config=self.config)
         
         # Setup config: This method determines the appropriate network and chain endpoint based on the provided network string or configuration object.
         self.chain_endpoint, self.network = self.subtensor.setup_config(self.config.network, self.config)

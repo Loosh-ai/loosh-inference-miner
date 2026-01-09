@@ -1,10 +1,23 @@
 # ---------- base stage ----------
+
 # ARG for final stage - must be declared before any FROM that uses it
 ARG OPTIONAL_DEPS=llamacpp
 
 #FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base
 #FROM python:3.12-slim AS base
 FROM ubuntu:24.04 AS base
+
+# Use BUILD_ENV=dev for ubuntu:24.04, 
+# BUILD_ENV=cuda for nvidia/cuda docker
+# BUILD_ENV=runpod for runpod
+
+ARG BUILD_ENV=dev
+
+FROM ubuntu:24.04 AS base-dev
+FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base-cuda
+FROM runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404 AS base-runpod
+
+FROM base-${BUILD_ENV} AS base
 
 WORKDIR /app
 
