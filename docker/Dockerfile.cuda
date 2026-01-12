@@ -86,7 +86,8 @@ COPY docker/prompt.sh /etc/profile.d/prompt.sh
 # Expose port
 EXPOSE 8000
 
-# Run the miner
-#CMD ["python", "miner/main.py"]
-#CMD ["tail", "-f", "/dev/null"]
-CMD ["/app/docker/nop.sh"]
+# Run the miner using uvicorn
+# The miner runs as a FastAPI application using uvicorn
+# API_HOST and API_PORT can be set via environment variables (defaults to 0.0.0.0:8000)
+# Using miner_server.py's main block which reads from config
+CMD ["uv", "run", "python", "-m", "miner.miner_server"]

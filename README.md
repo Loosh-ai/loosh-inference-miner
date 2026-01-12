@@ -13,14 +13,14 @@ loosh-inference-miner/
 │   ├── endpoints/          # API endpoints
 │   │   ├── inference.py    # Inference endpoint
 │   │   └── availability.py # Availability endpoint
-│   ├── network/            # Bittensor network code
-│   │   ├── InferenceSynapse.py # Synapse definition
-│   │   ├── bittensor_node.py # Bittensor node implementation
-│   │   └── axon.py         # Axon implementation
+│   ├── network/            # Network code
+│   │   ├── fiber_server.py # Fiber MLTS server implementation
+│   │   └── ...            # Legacy bittensor code (not used)
 │   ├── config/             # Configuration
 │   │   ├── config.py       # Miner configuration
 │   │   └── shared_config.py # Shared config utilities
-│   └── main.py            # Miner entry point
+│   ├── main.py            # Background loop (minimal)
+│   └── miner_server.py    # FastAPI server entry point (uvicorn)
 ├── docker/                  # Docker configuration
 │   ├── Dockerfile          # Main Dockerfile
 │   └── Dockerfile.cuda     # CUDA-enabled Dockerfile
@@ -31,9 +31,11 @@ loosh-inference-miner/
 
 ## Features
 
+- **Fiber MLTS (Multi-Layer Transport Security)** for encrypted challenge reception and response transmission
+- **RSA-based key exchange** and symmetric key encryption (Fernet) for secure communication
+- **Fiber-based subnet registration** - no bittensor dependency required
 - LLM inference using multiple backends (vLLM, Ollama, llama.cpp)
-- Bittensor network integration
-- FastAPI-based API endpoints
+- FastAPI-based API endpoints with uvicorn
 - Docker support with optional CUDA
 
 ## Requirements
@@ -74,34 +76,85 @@ source .venv/bin/activate  # Linux/Mac
 
 ## Configuration
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root by copying the example file:
 
-```env
-NETUID=21
-SUBTENSOR_NETWORK=finney
-SUBTENSOR_ADDRESS=wss://entrypoint-finney.opentensor.ai:443
-WALLET_NAME=miner
-HOTKEY_NAME=miner
-API_HOST=0.0.0.0
-API_PORT=8000
-AXON_PORT=8089
-DEFAULT_MODEL=mistralai/Mistral-7B-v0.1
-LLM_BACKEND=llamacpp
-TENSOR_PARALLEL_SIZE=1
-GPU_MEMORY_UTILIZATION=0.9
-MAX_MODEL_LEN=4096
-LOG_LEVEL=INFO
+```bash
+cp env.example .env
 ```
+
+Then edit `.env` and update the values according to your setup. See `env.example` for all available configuration options with descriptions.
+
+**Note:** Fiber only supports wallets in `~/.bittensor/wallets`. Custom wallet paths are not supported.
+
+## Subnet Registration
+
+Before running the miner, you must register it on the Bittensor subnet using Fiber's `fiber-post-ip` command:
+
+```bash
+fiber-post-ip \
+  --netuid <NETUID> \
+  --subtensor.network <NETWORK> \
+  --external_port <YOUR-PORT> \
+  --wallet.name <WALLET_NAME> \
+  --wallet.hotkey <HOTKEY_NAME> \
+  --external_ip <YOUR-IP>
+```
+
+**Example:**
+```bash
+fiber-post-ip \
+  --netuid 78 \
+  --subtensor.network finney \
+  --external_port 8000 \
+  --wallet.name miner \
+  --wallet.hotkey miner \
+  --external_ip 1.2.3.4
+```
+
+**Note:** 
+- Replace `<NETUID>` with your subnet UID (e.g., 78)
+- Replace `<NETWORK>` with the network name (e.g., `finney`, `test`, `local`)
+- Replace `<YOUR-PORT>` with the port your miner API will run on (e.g., 8000)
+- Replace `<WALLET_NAME>` and `<HOTKEY_NAME>` with your wallet configuration
+- Replace `<YOUR-IP>` with your miner's public IP address
+- The wallet must be located in `~/.bittensor/wallets` (Fiber requirement)
+
+You may need to run this command periodically to keep your miner registered on the subnet.
 
 ## Running
 
+The miner runs as a FastAPI application using uvicorn. The API server exposes endpoints for inference and availability checks.
+
 ### Starting the Miner
 
+#### Direct Execution
+
 ```bash
-python miner/main.py
+PYTHONPATH=. uv run uvicorn miner.miner_server:app --host 0.0.0.0 --port 8000
 ```
 
-Or using the provided script:
+Or if you have activated the virtual environment:
+
+```bash
+source .venv/bin/activate  # Linux/Mac
+uvicorn miner.miner_server:app --host 0.0.0.0 --port 8000
+```
+
+The host and port can be configured via environment variables (`API_HOST` and `API_PORT` in your `.env` file). Alternatively, you can run it directly:
+
+```bash
+PYTHONPATH=. uv run python -m miner.miner_server
+```
+
+This will automatically read `API_HOST` and `API_PORT` from your `.env` file.
+
+3. **Access the API documentation:**
+   - **Swagger UI**: http://localhost:8000/docs
+   - **ReDoc**: http://localhost:8000/redoc
+   - **OpenAPI JSON**: http://localhost:8000/openapi.json
+
+#### Using the Provided Script
+
 ```bash
 ./run-miner.sh
 ```
@@ -131,6 +184,8 @@ mkdir -p logs
 pm2 start PM2/ecosystem.config.js
 ```
 
+**Note:** The PM2 configuration should run the miner using uvicorn. Make sure to update `PM2/ecosystem.config.js` to use uvicorn if it's not already configured.
+
 #### PM2 Management Commands
 
 - **View status**: `pm2 status`
@@ -144,20 +199,28 @@ pm2 start PM2/ecosystem.config.js
 
 #### Configuration
 
-The PM2 configuration file is located at `PM2/ecosystem.config.js`. You can customize:
+The PM2 configuration file is located at `PM2/ecosystem.config.js`. It runs the miner using uvicorn. You can customize:
 
 - `MINER_WORKDIR`: Working directory (defaults to current directory)
 - `PYTHON_INTERPRETER`: Python interpreter path (defaults to `python3`)
+- `API_HOST` and `API_PORT`: Server address configuration
 - `max_memory_restart`: Maximum memory before restart (default: 8G)
 - Log file paths and other PM2 options
 
-#### Environment Variables
-
-You can override PM2 configuration using environment variables:
-
+**Example with virtual environment:**
 ```bash
-MINER_WORKDIR=/path/to/miner PYTHON_INTERPRETER=python3.12 pm2 start PM2/ecosystem.config.js
+PYTHON_INTERPRETER=./.venv/bin/python3 pm2 start PM2/ecosystem.config.js
 ```
+
+**Example with custom port:**
+```bash
+API_PORT=8020 pm2 start PM2/ecosystem.config.js
+```
+
+**Note:** The logs directory (`./logs/`) will be created automatically by PM2 if it doesn't exist. Logs are stored in:
+- `logs/miner-error.log` - Error logs
+- `logs/miner-out.log` - Standard output logs
+- `logs/miner-combined.log` - Combined logs with timestamps
 
 ## Docker Deployment
 
@@ -175,13 +238,34 @@ docker run -d \
   --name loosh-miner \
   -p 8000:8000 \
   -v ~/.bittensor/wallets:/root/.bittensor/wallets \
+  -e API_HOST=0.0.0.0 \
+  -e API_PORT=8000 \
   loosh-inference-miner
 ```
 
+**Note:** The Docker container runs the miner using uvicorn via `miner.miner_server:app`. The API host and port can be configured via `API_HOST` and `API_PORT` environment variables.
+
 ## API Endpoints
 
+The miner exposes a FastAPI application with the following endpoints:
+
+### Standard Endpoints
 - `GET /availability` - Check miner availability
-- `POST /inference` - Handle inference requests
+- `POST /inference` - Handle inference requests (deprecated - use Fiber MLTS endpoint)
+
+### Fiber MLTS Endpoints (Secure Communication)
+- `GET /fiber/public-key` - Get miner's RSA public key for key exchange
+- `POST /fiber/key-exchange` - Exchange symmetric key with validator
+- `POST /fiber/challenge` - Receive encrypted challenge from validator and return encrypted response
+
+**Note:** New validators should use the Fiber-encrypted `/fiber/challenge` endpoint instead of the legacy `/inference` endpoint.
+
+### API Documentation
+
+The miner includes interactive API documentation:
+- **Swagger UI** (`/docs`): Interactive API documentation where you can test endpoints directly
+- **ReDoc** (`/redoc`): Clean, responsive API documentation
+- **OpenAPI JSON** (`/openapi.json`): Machine-readable API specification
 
 ## LLM Backends
 

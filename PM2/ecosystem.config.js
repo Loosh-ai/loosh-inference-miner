@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'loosh-inference-miner',
       script: 'uvicorn',
-      args: `miner.main:app --host ${process.env.API_HOST || '0.0.0.0'} --port ${process.env.API_PORT || '8000'}`,
+      args: `miner.miner_server:app --host ${process.env.API_HOST || '0.0.0.0'} --port ${process.env.API_PORT || '8000'}`,
       interpreter: process.env.PYTHON_INTERPRETER || 'python3',
       cwd: process.env.MINER_WORKDIR || process.cwd(),
       watch: false,

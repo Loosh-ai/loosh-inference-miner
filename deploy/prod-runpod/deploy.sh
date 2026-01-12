@@ -213,3 +213,4 @@ echo "=========================================="
 echo "SSH in to check logs: ssh -p ${RUNPOD_PORT} ${RUNPOD_HOST}"
 echo "Log file: ${REMOTE_DIR}/miner.log"
 
+

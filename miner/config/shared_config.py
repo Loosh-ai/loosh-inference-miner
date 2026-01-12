@@ -118,3 +118,4 @@ def get_miner_config() -> MinerConfig:
     """Get miner configuration from environment variables."""
     return MinerConfig()
 
+

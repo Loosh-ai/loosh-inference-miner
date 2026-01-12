@@ -87,6 +87,20 @@ class MinerConfig(BaseSettings):
         default=False,
         description="Enable test mode - returns success message without running inference"
     )
+    
+    # Fiber MLTS Configuration
+    fiber_key_ttl_seconds: int = Field(
+        default=3600,
+        description="Time-to-live for Fiber symmetric keys in seconds (default: 1 hour)"
+    )
+    fiber_handshake_timeout_seconds: int = Field(
+        default=30,
+        description="Timeout for Fiber handshake operations in seconds"
+    )
+    fiber_enable_key_rotation: bool = Field(
+        default=True,
+        description="Enable automatic key rotation for Fiber symmetric keys"
+    )
 
 
 # Legacy alias for backward compatibility

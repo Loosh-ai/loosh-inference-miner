@@ -1,4 +1,5 @@
 import asyncio
+import random
 import time
 from typing import Dict, Any
 
@@ -9,6 +10,47 @@ from miner.config.config import Config
 from miner.core.llms import get_backend
 
 router = APIRouter()
+
+# Random phrases for test mode responses to help differentiate miners
+# Some phrases are semantically similar but use different words to test similarity detection
+TEST_MODE_PHRASES = [
+    # Unique phrases
+    "The quick brown fox jumps over the lazy dog.",
+    "In a galaxy far, far away, there exists infinite possibilities.",
+    "The ocean waves crash against the shore with rhythmic precision.",
+    "Mountains stand tall as silent witnesses to time's passage.",
+    "Stars twinkle in the night sky like distant dreams.",
+    "Nature's beauty unfolds in every season's unique tapestry.",
+    "Knowledge is the key that unlocks the doors of understanding.",
+    "The ancient forest whispers secrets to those who listen carefully.",
+    "Desert sands shift endlessly under the relentless sun.",
+    "Rivers flow ceaselessly toward the vast and waiting sea.",
+    
+    # Semantically similar pairs (different words, similar meaning)
+    # Pair 1: AI/Technology evolution
+    "Artificial intelligence continues to evolve and transform our world.",
+    "Machine learning systems progressively develop and reshape human society.",
+    
+    # Pair 2: Quantum physics
+    "Quantum mechanics reveals the mysterious nature of reality.",
+    "Subatomic physics uncovers the enigmatic essence of existence.",
+    
+    # Pair 3: Technology connectivity
+    "Technology connects humanity across vast digital landscapes.",
+    "Digital networks link people together through expansive virtual realms.",
+    
+    # Pair 4: Learning/Understanding
+    "Education opens pathways to new realms of comprehension.",
+    "Learning creates bridges to previously unknown territories of insight.",
+    
+    # Pair 5: Time and change
+    "Time marches forward, leaving transformation in its wake.",
+    "The passage of years brings inevitable change to all things.",
+    
+    # Pair 6: Nature's cycles
+    "Seasons change in an eternal dance of renewal and decay.",
+    "The natural world cycles through patterns of growth and decline."
+]
 
 class InferenceRequest(BaseModel):
     """Request for LLM inference."""
@@ -34,7 +76,12 @@ async def inference(
     validator_hotkey: str = Header(..., alias="validator-hotkey"),
     config: Config = Depends(get_config_dependency)
 ) -> Dict[str, Any]:
-    """Handle inference request."""
+    """
+    Handle inference request (DEPRECATED - Use Fiber MLTS /fiber/challenge endpoint instead).
+    
+    This endpoint is deprecated in favor of the Fiber-encrypted /fiber/challenge endpoint.
+    New validators should use Fiber MLTS for secure communication.
+    """
     try:
         # Check if test mode is enabled
         test_mode = getattr(config, 'test_mode', False)
@@ -46,8 +93,11 @@ async def inference(
             await asyncio.sleep(0.01)  # 10ms delay to simulate processing
             response_time_ms = int((time.time() - start_time) * 1000)
             
+            # Select a random phrase to add variation to test mode responses
+            random_phrase = random.choice(TEST_MODE_PHRASES)
+            
             return InferenceResponse(
-                response_text="[TEST MODE] Inference request received successfully. Test mode is enabled - no actual inference was performed.",
+                response_text=f"[TEST MODE] Inference request received successfully. Test mode is enabled - no actual inference was performed. {random_phrase}",
                 response_time_ms=response_time_ms
             ).model_dump()
         
