@@ -101,6 +101,12 @@ class MinerConfig(BaseSettings):
         default=True,
         description="Enable automatic key rotation for Fiber symmetric keys"
     )
+    
+    # Concurrency configuration
+    max_concurrent_requests: int = Field(
+        default=10,
+        description="Maximum number of concurrent inference requests to process"
+    )
 
 
 # Legacy alias for backward compatibility
