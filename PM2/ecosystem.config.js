@@ -51,6 +51,17 @@ const GPU_MEMORY_UTILIZATION = process.env.GPU_MEMORY_UTILIZATION || '0.9';
 const MAX_MODEL_LEN = process.env.MAX_MODEL_LEN || '4096';
 const WORKDIR = process.env.MINER_WORKDIR || process.cwd();
 
+// vLLM Advanced Configuration
+const VLLM_ENABLE_AUTO_TOOL_CHOICE = process.env.VLLM_ENABLE_AUTO_TOOL_CHOICE || 'true';
+const VLLM_TOOL_CALL_PARSER = process.env.VLLM_TOOL_CALL_PARSER || 'hermes';
+const VLLM_ENABLE_PREFIX_CACHING = process.env.VLLM_ENABLE_PREFIX_CACHING || 'true';
+const VLLM_MAX_NUM_SEQS = process.env.VLLM_MAX_NUM_SEQS || '64';
+const VLLM_MAX_NUM_BATCHED_TOKENS = process.env.VLLM_MAX_NUM_BATCHED_TOKENS || '32768';
+
+// HuggingFace Cache Configuration
+const HUGGINGFACE_HUB_CACHE = process.env.HUGGINGFACE_HUB_CACHE || '';
+const HF_HOME = process.env.HF_HOME || '';
+
 // Extract vLLM port from VLLM_API_BASE
 let VLLM_PORT = '8000';
 const vllmPortMatch = VLLM_API_BASE.match(/:(\d+)/);
@@ -80,18 +91,55 @@ const apps = [];
 
 // If vLLM backend, add vLLM server app
 if (LLM_BACKEND === 'vllm') {
+  // Build vLLM arguments dynamically
+  const vllmArgs = [
+    '-m', 'vllm.entrypoints.openai.api_server',
+    '--model', DEFAULT_MODEL,
+    '--tensor-parallel-size', TENSOR_PARALLEL_SIZE,
+    '--gpu-memory-utilization', GPU_MEMORY_UTILIZATION,
+    '--max-model-len', MAX_MODEL_LEN,
+    '--port', VLLM_PORT
+  ];
+
+  // Add advanced vLLM options if enabled
+  if (VLLM_ENABLE_AUTO_TOOL_CHOICE === 'true') {
+    vllmArgs.push('--enable-auto-tool-choice');
+  }
+  if (VLLM_TOOL_CALL_PARSER && VLLM_TOOL_CALL_PARSER !== 'none') {
+    vllmArgs.push('--tool-call-parser', VLLM_TOOL_CALL_PARSER);
+  }
+  if (VLLM_ENABLE_PREFIX_CACHING === 'true') {
+    vllmArgs.push('--enable-prefix-caching');
+  }
+  if (VLLM_MAX_NUM_SEQS) {
+    vllmArgs.push('--max-num-seqs', VLLM_MAX_NUM_SEQS);
+  }
+  if (VLLM_MAX_NUM_BATCHED_TOKENS) {
+    vllmArgs.push('--max-num-batched-tokens', VLLM_MAX_NUM_BATCHED_TOKENS);
+  }
+
+  // Build environment variables for vLLM
+  const vllmEnv = {
+    ...baseConfig.env,
+    DEFAULT_MODEL: DEFAULT_MODEL,
+    TENSOR_PARALLEL_SIZE: TENSOR_PARALLEL_SIZE,
+    GPU_MEMORY_UTILIZATION: GPU_MEMORY_UTILIZATION,
+    MAX_MODEL_LEN: MAX_MODEL_LEN,
+  };
+
+  // Add HuggingFace cache configuration if specified
+  if (HUGGINGFACE_HUB_CACHE) {
+    vllmEnv.HUGGINGFACE_HUB_CACHE = HUGGINGFACE_HUB_CACHE;
+  }
+  if (HF_HOME) {
+    vllmEnv.HF_HOME = HF_HOME;
+  }
+
   apps.push({
     ...baseConfig,
     name: 'loosh-vllm-server',
     script: 'python',
-    args: [
-      '-m', 'vllm.entrypoints.openai.api_server',
-      '--model', DEFAULT_MODEL,
-      '--tensor-parallel-size', TENSOR_PARALLEL_SIZE,
-      '--gpu-memory-utilization', GPU_MEMORY_UTILIZATION,
-      '--max-model-len', MAX_MODEL_LEN,
-      '--port', VLLM_PORT
-    ].join(' '),
+    args: vllmArgs.join(' '),
     interpreter: process.env.PYTHON_INTERPRETER || 'python3',
     max_memory_restart: '16G', // vLLM can use more memory
     error_file: './logs/vllm-error.log',
@@ -100,13 +148,7 @@ if (LLM_BACKEND === 'vllm') {
     kill_timeout: 30000,
     // vLLM can take a while to download and load models
     min_uptime: '30s', // Give vLLM more time before considering it stable
-    env: {
-      ...baseConfig.env,
-      DEFAULT_MODEL: DEFAULT_MODEL,
-      TENSOR_PARALLEL_SIZE: TENSOR_PARALLEL_SIZE,
-      GPU_MEMORY_UTILIZATION: GPU_MEMORY_UTILIZATION,
-      MAX_MODEL_LEN: MAX_MODEL_LEN,
-    }
+    env: vllmEnv
   });
 }
 
@@ -140,6 +182,15 @@ apps.push({
     TENSOR_PARALLEL_SIZE: TENSOR_PARALLEL_SIZE,
     GPU_MEMORY_UTILIZATION: GPU_MEMORY_UTILIZATION,
     MAX_MODEL_LEN: MAX_MODEL_LEN,
+    // vLLM Advanced Configuration (passed to miner for reference)
+    VLLM_ENABLE_AUTO_TOOL_CHOICE: VLLM_ENABLE_AUTO_TOOL_CHOICE,
+    VLLM_TOOL_CALL_PARSER: VLLM_TOOL_CALL_PARSER,
+    VLLM_ENABLE_PREFIX_CACHING: VLLM_ENABLE_PREFIX_CACHING,
+    VLLM_MAX_NUM_SEQS: VLLM_MAX_NUM_SEQS,
+    VLLM_MAX_NUM_BATCHED_TOKENS: VLLM_MAX_NUM_BATCHED_TOKENS,
+    // HuggingFace Cache Configuration
+    ...(HUGGINGFACE_HUB_CACHE && { HUGGINGFACE_HUB_CACHE: HUGGINGFACE_HUB_CACHE }),
+    ...(HF_HOME && { HF_HOME: HF_HOME }),
     // Include all other env vars that might be needed
     NETUID: process.env.NETUID || '',
     SUBTENSOR_NETWORK: process.env.SUBTENSOR_NETWORK || '',

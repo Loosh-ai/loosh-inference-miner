@@ -27,6 +27,13 @@ TENSOR_PARALLEL_SIZE=${TENSOR_PARALLEL_SIZE:-1}
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.9}
 MAX_MODEL_LEN=${MAX_MODEL_LEN:-4096}
 
+# vLLM Advanced Configuration
+VLLM_ENABLE_AUTO_TOOL_CHOICE=${VLLM_ENABLE_AUTO_TOOL_CHOICE:-true}
+VLLM_TOOL_CALL_PARSER=${VLLM_TOOL_CALL_PARSER:-hermes}
+VLLM_ENABLE_PREFIX_CACHING=${VLLM_ENABLE_PREFIX_CACHING:-true}
+VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-64}
+VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-32768}
+
 # Create logs directory early (before any logging)
 mkdir -p logs
 
@@ -85,13 +92,36 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
             echo "Please ensure vLLM server is running at $VLLM_API_BASE"
         fi
     else
+        # Build vLLM command arguments
+        VLLM_ARGS="--model $DEFAULT_MODEL"
+        VLLM_ARGS="$VLLM_ARGS --tensor-parallel-size $TENSOR_PARALLEL_SIZE"
+        VLLM_ARGS="$VLLM_ARGS --gpu-memory-utilization $GPU_MEMORY_UTILIZATION"
+        VLLM_ARGS="$VLLM_ARGS --max-model-len $MAX_MODEL_LEN"
+        VLLM_ARGS="$VLLM_ARGS --port $VLLM_PORT"
+        
+        # Add optional flags if enabled
+        if [ "$VLLM_ENABLE_AUTO_TOOL_CHOICE" = "true" ]; then
+            VLLM_ARGS="$VLLM_ARGS --enable-auto-tool-choice"
+        fi
+        
+        if [ -n "$VLLM_TOOL_CALL_PARSER" ] && [ "$VLLM_TOOL_CALL_PARSER" != "none" ]; then
+            VLLM_ARGS="$VLLM_ARGS --tool-call-parser $VLLM_TOOL_CALL_PARSER"
+        fi
+        
+        if [ "$VLLM_ENABLE_PREFIX_CACHING" = "true" ]; then
+            VLLM_ARGS="$VLLM_ARGS --enable-prefix-caching"
+        fi
+        
+        if [ -n "$VLLM_MAX_NUM_SEQS" ]; then
+            VLLM_ARGS="$VLLM_ARGS --max-num-seqs $VLLM_MAX_NUM_SEQS"
+        fi
+        
+        if [ -n "$VLLM_MAX_NUM_BATCHED_TOKENS" ]; then
+            VLLM_ARGS="$VLLM_ARGS --max-num-batched-tokens $VLLM_MAX_NUM_BATCHED_TOKENS"
+        fi
+        
         echo "Starting vLLM server with model: $DEFAULT_MODEL"
-        echo "Command: python -m vllm.entrypoints.openai.api_server \\"
-        echo "  --model $DEFAULT_MODEL \\"
-        echo "  --tensor-parallel-size $TENSOR_PARALLEL_SIZE \\"
-        echo "  --gpu-memory-utilization $GPU_MEMORY_UTILIZATION \\"
-        echo "  --max-model-len $MAX_MODEL_LEN \\"
-        echo "  --port $VLLM_PORT"
+        echo "Command: python -m vllm.entrypoints.openai.api_server $VLLM_ARGS"
         echo ""
         echo "Note: If this is the first time running this model, vLLM will download it from HuggingFace."
         echo "Download progress will be shown below. This may take several minutes depending on model size."
@@ -99,7 +129,8 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
         
         # Check for hf_transfer issue and handle it
         # If HF_HUB_ENABLE_HF_TRANSFER is set but hf_transfer is not installed, disable it
-        if [ "${HF_HUB_ENABLE_HF_TRANSFER:-0}" = "1" ] && ! python -c "import hf_transfer" 2>/dev/null; then
+        PYTHON_CHECK="${PYTHON_BIN:-python}"
+        if [ "${HF_HUB_ENABLE_HF_TRANSFER:-0}" = "1" ] && ! $PYTHON_CHECK -c "import hf_transfer" 2>/dev/null; then
             echo "Warning: HF_HUB_ENABLE_HF_TRANSFER=1 is set but hf_transfer is not installed."
             echo "Disabling fast download to use standard download method."
             echo ""
@@ -136,17 +167,54 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
         # PYTHONUNBUFFERED=1 ensures progress bars show in real-time
         # We redirect to both stdout (for user to see) and log file
         
+        # Determine the Python interpreter to use
+        # Prefer venv python, fall back to uv run python, then system python
+        if [ -f ".venv/bin/python" ]; then
+            PYTHON_BIN=".venv/bin/python"
+            echo "Using venv Python: $PYTHON_BIN"
+        elif command -v uv &> /dev/null; then
+            PYTHON_BIN="uv run python"
+            echo "Using uv run python"
+        else
+            PYTHON_BIN="python"
+            echo "Warning: Using system Python. vLLM may not be installed."
+            echo "Install with: uv sync --extra vllm"
+        fi
+        
         # Start vLLM with output going to both terminal and log file
-        # Using exec to properly handle the background process
-        (
-            PYTHONUNBUFFERED=1 python -m vllm.entrypoints.openai.api_server \
-                --model "$DEFAULT_MODEL" \
-                --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
-                --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-                --max-model-len "$MAX_MODEL_LEN" \
-                --port "$VLLM_PORT" \
-                2>&1 | tee logs/vllm-server.log
-        ) &
+        # Use unbuffer or script to preserve TTY for progress bars
+        # Force tqdm to show progress even when piped
+        echo ""
+        echo "Starting vLLM server (output will appear below)..."
+        echo "Progress bars from model download will be displayed."
+        echo ""
+        
+        # Start vLLM - use script -c to preserve TTY for progress bars, or fall back to tee
+        if command -v script &> /dev/null; then
+            # Use script command to preserve TTY (better for progress bars)
+            # Different syntax for Linux vs macOS
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                # macOS
+                (
+                    PYTHONUNBUFFERED=1 HF_HUB_DISABLE_PROGRESS_BARS=0 \
+                    script -q logs/vllm-server.log $PYTHON_BIN -m vllm.entrypoints.openai.api_server $VLLM_ARGS
+                ) &
+            else
+                # Linux
+                (
+                    PYTHONUNBUFFERED=1 HF_HUB_DISABLE_PROGRESS_BARS=0 \
+                    script -q -c "$PYTHON_BIN -m vllm.entrypoints.openai.api_server $VLLM_ARGS" logs/vllm-server.log
+                ) &
+            fi
+        else
+            # Fallback to tee with forced progress
+            # Set environment to force tqdm progress bars
+            (
+                PYTHONUNBUFFERED=1 HF_HUB_DISABLE_PROGRESS_BARS=0 FORCE_COLOR=1 \
+                $PYTHON_BIN -u -m vllm.entrypoints.openai.api_server $VLLM_ARGS \
+                    2>&1 | tee logs/vllm-server.log
+            ) &
+        fi
         
         VLLM_PID=$!
         echo "vLLM server started with PID: $VLLM_PID"
@@ -172,6 +240,7 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
             else
                 echo "No error output captured. Possible issues:"
                 echo "  - vLLM not installed: Run 'uv sync --extra vllm'"
+                echo "  - Using wrong Python interpreter: Ensure .venv exists and contains vLLM"
                 echo "  - Model not found or invalid: Check model name '$DEFAULT_MODEL'"
                 echo "    Note: For AWQ models, ensure the model path is correct"
                 echo "    Example: 'Qwen/Qwen2.5-72B-Instruct-AWQ' or use base model with quantization"
@@ -180,8 +249,11 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
                 echo "  - GPU/CUDA issues: Check CUDA installation and GPU availability"
                 echo "  - Port already in use: Check if port $VLLM_PORT is available"
                 echo ""
+                echo "Verify vLLM installation:"
+                echo "  ${PYTHON_BIN:-python} -c 'import vllm; print(vllm.__version__)'"
+                echo ""
                 echo "Try running vLLM manually to see the error:"
-                echo "  python -m vllm.entrypoints.openai.api_server --model $DEFAULT_MODEL --port $VLLM_PORT"
+                echo "  ${PYTHON_BIN:-python} -m vllm.entrypoints.openai.api_server --model $DEFAULT_MODEL --port $VLLM_PORT"
             fi
             exit 1
         fi
