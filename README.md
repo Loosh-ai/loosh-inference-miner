@@ -271,11 +271,42 @@ The miner includes interactive API documentation:
 
 The miner supports multiple LLM backends:
 
-- **vLLM**: High-performance inference (requires CUDA)
-- **Ollama**: Local model serving
-- **llama.cpp**: CPU-optimized inference
+- **vLLM**: High-performance inference (requires CUDA-capable GPU and separate vLLM server)
+- **Ollama**: Local model serving (requires separate Ollama server)
+- **llama.cpp**: CPU-optimized inference (runs directly in miner process)
 
 Select the backend using the `LLM_BACKEND` environment variable.
+
+### vLLM Setup
+
+**Important**: vLLM requires a separate server process to be running before starting the miner.
+
+1. Install vLLM dependencies:
+   ```bash
+   uv sync --extra vllm
+   ```
+
+2. Start the vLLM server with your model (models are automatically downloaded from HuggingFace):
+   ```bash
+   python -m vllm.entrypoints.openai.api_server \
+     --model Qwen/Qwen2.5-14B-Instruct \
+     --tensor-parallel-size 1 \
+     --gpu-memory-utilization 0.9 \
+     --max-model-len 4096 \
+     --port 8000
+   ```
+
+3. Configure the miner to use vLLM in your `.env`:
+   ```bash
+   LLM_BACKEND=vllm
+   DEFAULT_MODEL=Qwen/Qwen2.5-14B-Instruct
+   # Optional: if vLLM server is on a different host/port
+   # VLLM_API_BASE=http://localhost:8000/v1
+   ```
+
+4. Start the miner (vLLM server must already be running)
+
+See [miner/core/llms/README.md](miner/core/llms/README.md) for detailed backend documentation.
 
 ## Contributing
 

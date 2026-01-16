@@ -67,6 +67,10 @@ class MinerConfig(BaseSettings):
         default=300.0,
         description="Ollama API timeout in seconds"
     )
+    vllm_api_base: str = Field(
+        default="http://localhost:8000/v1",
+        description="vLLM API base URL (OpenAI-compatible endpoint)"
+    )
     
     # GPU configuration
     tensor_parallel_size: int = Field(default=1, description="Number of GPU layers to use")

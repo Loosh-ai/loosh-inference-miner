@@ -1,4 +1,152 @@
 #!/bin/bash
-# Run miner using uvicorn
-PYTHONPATH=. uv run uvicorn miner.miner_server:app --host 0.0.0.0 --port 8100 --reload
+# Run miner with LLM backend support (vLLM, Ollama, or llama.cpp)
+# Reads configuration from .env file
+
+set -e
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Load .env file if it exists
+# Standard approach: set -a auto-exports, then source the file
+if [ -f .env ]; then
+    set -a  # Automatically export all variables
+    source .env 2>/dev/null || true
+    set +a  # Stop automatically exporting
+fi
+
+# Default values
+LLM_BACKEND=${LLM_BACKEND:-llamacpp}
+API_HOST=${API_HOST:-0.0.0.0}
+API_PORT=${API_PORT:-8000}
+DEFAULT_MODEL=${DEFAULT_MODEL:-mistralai/Mistral-7B-v0.1}
+VLLM_API_BASE=${VLLM_API_BASE:-http://localhost:8000/v1}
+VLLM_PORT=${VLLM_PORT:-8000}
+TENSOR_PARALLEL_SIZE=${TENSOR_PARALLEL_SIZE:-1}
+GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.9}
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-4096}
+
+echo "Starting Loosh Inference Miner with backend: $LLM_BACKEND"
+
+# Function to check if a port is in use
+check_port() {
+    local port=$1
+    if command -v lsof > /dev/null 2>&1; then
+        lsof -i :$port > /dev/null 2>&1
+    elif command -v netstat > /dev/null 2>&1; then
+        netstat -an | grep -q ":$port.*LISTEN"
+    else
+        # Fallback: try to connect
+        timeout 1 bash -c "cat < /dev/null > /dev/tcp/localhost/$port" 2>/dev/null
+    fi
+}
+
+# Function to wait for a service to be ready
+wait_for_service() {
+    local url=$1
+    local max_attempts=30
+    local attempt=0
+    
+    echo "Waiting for service at $url to be ready..."
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s "$url" > /dev/null 2>&1; then
+            echo "Service at $url is ready!"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+    
+    echo "Warning: Service at $url did not become ready after $max_attempts attempts"
+    return 1
+}
+
+# Handle vLLM backend
+if [ "$LLM_BACKEND" = "vllm" ]; then
+    echo "vLLM backend selected"
+    
+    # Extract port from VLLM_API_BASE if it contains a port
+    if [[ "$VLLM_API_BASE" =~ :([0-9]+) ]]; then
+        VLLM_PORT="${BASH_REMATCH[1]}"
+    fi
+    
+    # Check if vLLM server is already running
+    if check_port $VLLM_PORT; then
+        echo "vLLM server appears to be running on port $VLLM_PORT"
+        # Verify it's actually vLLM by checking the models endpoint
+        if curl -s "$VLLM_API_BASE/models" > /dev/null 2>&1; then
+            echo "vLLM server is ready at $VLLM_API_BASE"
+        else
+            echo "Warning: Port $VLLM_PORT is in use but may not be vLLM server"
+            echo "Please ensure vLLM server is running at $VLLM_API_BASE"
+        fi
+    else
+        echo "Starting vLLM server with model: $DEFAULT_MODEL"
+        echo "Command: python -m vllm.entrypoints.openai.api_server \\"
+        echo "  --model $DEFAULT_MODEL \\"
+        echo "  --tensor-parallel-size $TENSOR_PARALLEL_SIZE \\"
+        echo "  --gpu-memory-utilization $GPU_MEMORY_UTILIZATION \\"
+        echo "  --max-model-len $MAX_MODEL_LEN \\"
+        echo "  --port $VLLM_PORT"
+        
+        # Start vLLM server in background
+        python -m vllm.entrypoints.openai.api_server \
+            --model "$DEFAULT_MODEL" \
+            --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
+            --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+            --max-model-len "$MAX_MODEL_LEN" \
+            --port "$VLLM_PORT" \
+            > logs/vllm-server.log 2>&1 &
+        
+        VLLM_PID=$!
+        echo "vLLM server started with PID: $VLLM_PID"
+        
+        # Wait for vLLM to be ready
+        wait_for_service "$VLLM_API_BASE/models" || {
+            echo "Error: vLLM server failed to start"
+            kill $VLLM_PID 2>/dev/null || true
+            exit 1
+        }
+        
+        # Trap to cleanup vLLM on script exit
+        trap "echo 'Stopping vLLM server...'; kill $VLLM_PID 2>/dev/null || true" EXIT
+    fi
+fi
+
+# Handle Ollama backend
+if [ "$LLM_BACKEND" = "ollama" ]; then
+    echo "Ollama backend selected"
+    
+    OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
+    
+    # Check if Ollama is running
+    if ! curl -s "$OLLAMA_BASE_URL/api/tags" > /dev/null 2>&1; then
+        echo "Warning: Ollama server does not appear to be running at $OLLAMA_BASE_URL"
+        echo "Please start Ollama server first: ollama serve"
+        echo "Or pull your model: ollama pull $DEFAULT_MODEL"
+        read -p "Continue anyway? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        echo "Ollama server is running at $OLLAMA_BASE_URL"
+    fi
+fi
+
+# Handle llama.cpp backend
+if [ "$LLM_BACKEND" = "llamacpp" ]; then
+    echo "llama.cpp backend selected (runs in-process)"
+    if [ -z "$MODEL_PATH" ]; then
+        echo "Warning: MODEL_PATH is not set. The model will need to be specified at runtime."
+    fi
+fi
+
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Start the miner
+echo "Starting miner server on $API_HOST:$API_PORT..."
+PYTHONPATH=. uv run uvicorn miner.miner_server:app --host "$API_HOST" --port "$API_PORT" --reload
 

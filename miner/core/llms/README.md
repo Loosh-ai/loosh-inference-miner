@@ -74,9 +74,10 @@ MODEL_PATH=/path/to/model.gguf  # Optional, can use model name
 - `MODEL_PATH`: Path to model file (for llama.cpp)
 - `OLLAMA_BASE_URL`: Ollama API base URL (default: `http://localhost:11434`)
 - `OLLAMA_TIMEOUT`: Ollama API timeout in seconds (default: `300.0`)
-- `TENSOR_PARALLEL_SIZE`: Number of GPU layers/parallel workers
-- `GPU_MEMORY_UTILIZATION`: GPU memory utilization (0.0-1.0)
-- `MAX_MODEL_LEN`: Maximum context length
+- `VLLM_API_BASE`: vLLM API base URL (default: `http://localhost:8000/v1`)
+- `TENSOR_PARALLEL_SIZE`: Number of GPU layers/parallel workers (for vLLM server command, not miner config)
+- `GPU_MEMORY_UTILIZATION`: GPU memory utilization (0.0-1.0) (for vLLM server command, not miner config)
+- `MAX_MODEL_LEN`: Maximum context length (for vLLM server command, not miner config)
 
 ## Usage
 
@@ -126,13 +127,37 @@ If a requested backend is not found, the system will:
 
 ### vLLM
 
-- **Requirements**: CUDA-capable GPU
+- **Requirements**: CUDA-capable GPU, vLLM server running separately
 - **Best for**: High-throughput inference
 - **Features**: 
   - Tensor parallelism support
   - Efficient batching
   - Models from HuggingFace or local paths
+  - Automatic model download from HuggingFace when starting server
 - **Installation**: `uv pip install -e ".[vllm]"`
+- **Setup**: 
+  ```bash
+  # vLLM server must be started separately before running the miner
+  # The miner connects to vLLM via OpenAI-compatible API (default: http://localhost:8000/v1)
+  
+  # Start vLLM server with your model
+  # Models are automatically downloaded from HuggingFace if not already cached
+  python -m vllm.entrypoints.openai.api_server \
+    --model Qwen/Qwen2.5-14B-Instruct \
+    --tensor-parallel-size 1 \
+    --gpu-memory-utilization 0.9 \
+    --max-model-len 4096 \
+    --port 8000
+  
+  # Or use a different port and configure in miner .env:
+  # VLLM_API_BASE=http://localhost:9000/v1
+  ```
+  
+  **Important Notes:**
+  - The vLLM server must be running **before** starting the miner
+  - The model specified in `DEFAULT_MODEL` must match the model loaded in the vLLM server
+  - vLLM automatically downloads models from HuggingFace on first use
+  - GPU configuration (`TENSOR_PARALLEL_SIZE`, `GPU_MEMORY_UTILIZATION`, `MAX_MODEL_LEN`) should be passed to the vLLM server command, not the miner
 
 ### Ollama
 
@@ -257,4 +282,12 @@ If you see import errors for backend-specific packages:
 - Ensure Ollama server is running: `ollama serve`
 - Check `OLLAMA_BASE_URL` matches your Ollama server address
 - Verify network connectivity to Ollama server
+
+### vLLM connection errors
+
+- Ensure vLLM server is running separately before starting the miner
+- Check `VLLM_API_BASE` (default: `http://localhost:8000/v1`) matches your vLLM server address
+- Verify the model specified in `DEFAULT_MODEL` is loaded in the vLLM server
+- Test vLLM server directly: `curl http://localhost:8000/v1/models`
+- Verify network connectivity to vLLM server
 
