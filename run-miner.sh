@@ -97,6 +97,20 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
         echo "Download progress will be shown below. This may take several minutes depending on model size."
         echo ""
         
+        # Check for hf_transfer issue and handle it
+        # If HF_HUB_ENABLE_HF_TRANSFER is set but hf_transfer is not installed, disable it
+        if [ "${HF_HUB_ENABLE_HF_TRANSFER:-0}" = "1" ] && ! python -c "import hf_transfer" 2>/dev/null; then
+            echo "Warning: HF_HUB_ENABLE_HF_TRANSFER=1 is set but hf_transfer is not installed."
+            echo "Disabling fast download to use standard download method."
+            echo ""
+            echo "Note: For large models like $DEFAULT_MODEL (72B), installing hf_transfer can significantly"
+            echo "      speed up downloads. To enable fast downloads, run:"
+            echo "      pip install hf_transfer"
+            echo "      or: uv pip install hf_transfer"
+            echo ""
+            export HF_HUB_ENABLE_HF_TRANSFER=0
+        fi
+        
         # Start vLLM server in background
         # Use stdbuf to ensure unbuffered output, and tee to show progress while logging
         # PYTHONUNBUFFERED=1 ensures progress bars show in real-time
@@ -139,6 +153,10 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
                 echo "No error output captured. Possible issues:"
                 echo "  - vLLM not installed: Run 'uv sync --extra vllm'"
                 echo "  - Model not found or invalid: Check model name '$DEFAULT_MODEL'"
+                echo "    Note: For AWQ models, ensure the model path is correct"
+                echo "    Example: 'Qwen/Qwen2.5-72B-Instruct-AWQ' or use base model with quantization"
+                echo "  - hf_transfer issue: If HF_HUB_ENABLE_HF_TRANSFER=1, install: pip install hf_transfer"
+                echo "    Or disable it: unset HF_HUB_ENABLE_HF_TRANSFER"
                 echo "  - GPU/CUDA issues: Check CUDA installation and GPU availability"
                 echo "  - Port already in use: Check if port $VLLM_PORT is available"
                 echo ""
@@ -166,6 +184,22 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
                 echo "----------------------------------------"
                 tail -50 logs/vllm-server.log
                 echo "----------------------------------------"
+                echo ""
+                # Check for common errors and provide solutions
+                if grep -q "hf_transfer" logs/vllm-server.log 2>/dev/null; then
+                    echo "Solution: Install hf_transfer or disable fast download:"
+                    echo "  pip install hf_transfer"
+                    echo "  OR"
+                    echo "  unset HF_HUB_ENABLE_HF_TRANSFER"
+                    echo ""
+                fi
+                if grep -q "Can't load the configuration" logs/vllm-server.log 2>/dev/null; then
+                    echo "Solution: Check if the model name is correct:"
+                    echo "  - For AWQ models, verify the model path exists on HuggingFace"
+                    echo "  - Try using the base model name instead: 'Qwen/Qwen2.5-72B-Instruct'"
+                    echo "  - Or check if you need to specify quantization differently"
+                    echo ""
+                fi
             else
                 echo "Log file is empty - process may have failed immediately"
             fi
