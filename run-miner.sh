@@ -27,6 +27,9 @@ TENSOR_PARALLEL_SIZE=${TENSOR_PARALLEL_SIZE:-1}
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.9}
 MAX_MODEL_LEN=${MAX_MODEL_LEN:-4096}
 
+# Create logs directory early (before any logging)
+mkdir -p logs
+
 echo "Starting Loosh Inference Miner with backend: $LLM_BACKEND"
 
 # Function to check if a port is in use
@@ -89,25 +92,38 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
         echo "  --gpu-memory-utilization $GPU_MEMORY_UTILIZATION \\"
         echo "  --max-model-len $MAX_MODEL_LEN \\"
         echo "  --port $VLLM_PORT"
+        echo ""
+        echo "Note: If this is the first time running this model, vLLM will download it from HuggingFace."
+        echo "Download progress will be shown below. This may take several minutes depending on model size."
+        echo ""
         
         # Start vLLM server in background
-        python -m vllm.entrypoints.openai.api_server \
+        # Use tee to show output in real-time while also logging to file
+        # This allows users to see download progress from HuggingFace
+        # PYTHONUNBUFFERED=1 ensures progress bars show in real-time
+        PYTHONUNBUFFERED=1 python -m vllm.entrypoints.openai.api_server \
             --model "$DEFAULT_MODEL" \
             --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
             --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
             --max-model-len "$MAX_MODEL_LEN" \
             --port "$VLLM_PORT" \
-            > logs/vllm-server.log 2>&1 &
+            2>&1 | tee logs/vllm-server.log &
         
         VLLM_PID=$!
         echo "vLLM server started with PID: $VLLM_PID"
+        echo "Logs are being written to: logs/vllm-server.log"
+        echo "Waiting for vLLM server to be ready (this may take a while if downloading the model)..."
         
         # Wait for vLLM to be ready
         wait_for_service "$VLLM_API_BASE/models" || {
-            echo "Error: vLLM server failed to start"
+            echo ""
+            echo "Error: vLLM server failed to start or did not become ready"
+            echo "Check logs/vllm-server.log for details"
             kill $VLLM_PID 2>/dev/null || true
             exit 1
         }
+        
+        echo "vLLM server is ready!"
         
         # Trap to cleanup vLLM on script exit
         trap "echo 'Stopping vLLM server...'; kill $VLLM_PID 2>/dev/null || true" EXIT
@@ -142,9 +158,6 @@ if [ "$LLM_BACKEND" = "llamacpp" ]; then
         echo "Warning: MODEL_PATH is not set. The model will need to be specified at runtime."
     fi
 fi
-
-# Create logs directory if it doesn't exist
-mkdir -p logs
 
 # Start the miner
 echo "Starting miner server on $API_HOST:$API_PORT..."
