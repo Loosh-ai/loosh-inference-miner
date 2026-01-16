@@ -111,6 +111,26 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
             export HF_HUB_ENABLE_HF_TRANSFER=0
         fi
         
+        # Set HuggingFace cache location if specified
+        # Default location: ~/.cache/huggingface/hub/
+        # Can be overridden via HUGGINGFACE_HUB_CACHE or HF_HOME environment variables
+        if [ -n "${HUGGINGFACE_HUB_CACHE:-}" ]; then
+            export HUGGINGFACE_HUB_CACHE
+            echo "Using custom HuggingFace cache: $HUGGINGFACE_HUB_CACHE"
+            # Ensure the directory exists
+            mkdir -p "$HUGGINGFACE_HUB_CACHE"
+        elif [ -n "${HF_HOME:-}" ]; then
+            export HF_HOME
+            echo "Using custom HuggingFace home: $HF_HOME (cache will be in $HF_HOME/hub/)"
+            # Ensure the directory exists
+            mkdir -p "$HF_HOME/hub"
+        else
+            # Show default location
+            DEFAULT_CACHE="${HOME}/.cache/huggingface/hub"
+            echo "HuggingFace cache location: $DEFAULT_CACHE"
+            echo "  (To change this, set HUGGINGFACE_HUB_CACHE or HF_HOME in your .env file)"
+        fi
+        
         # Start vLLM server in background
         # Use stdbuf to ensure unbuffered output, and tee to show progress while logging
         # PYTHONUNBUFFERED=1 ensures progress bars show in real-time
@@ -198,6 +218,17 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
                     echo "  - For AWQ models, verify the model path exists on HuggingFace"
                     echo "  - Try using the base model name instead: 'Qwen/Qwen2.5-72B-Instruct'"
                     echo "  - Or check if you need to specify quantization differently"
+                    echo ""
+                fi
+                if grep -q "Disk quota exceeded\|No space left\|ENOSPC" logs/vllm-server.log 2>/dev/null; then
+                    echo "Solution: Disk space issue detected. Options:"
+                    echo "  1. Free up space in the current cache location"
+                    echo "  2. Set a custom cache location with more space in your .env file:"
+                    echo "     HUGGINGFACE_HUB_CACHE=/path/to/larger/disk/huggingface-cache"
+                    echo "  3. Or set HF_HOME to change the base directory:"
+                    echo "     HF_HOME=/path/to/larger/disk/huggingface"
+                    echo ""
+                    echo "  Current cache location: ${HUGGINGFACE_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
                     echo ""
                 fi
             else
