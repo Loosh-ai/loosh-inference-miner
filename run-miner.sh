@@ -98,27 +98,77 @@ if [ "$LLM_BACKEND" = "vllm" ]; then
         echo ""
         
         # Start vLLM server in background
-        # Use tee to show output in real-time while also logging to file
-        # This allows users to see download progress from HuggingFace
+        # Use stdbuf to ensure unbuffered output, and tee to show progress while logging
         # PYTHONUNBUFFERED=1 ensures progress bars show in real-time
-        PYTHONUNBUFFERED=1 python -m vllm.entrypoints.openai.api_server \
-            --model "$DEFAULT_MODEL" \
-            --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
-            --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-            --max-model-len "$MAX_MODEL_LEN" \
-            --port "$VLLM_PORT" \
-            2>&1 | tee logs/vllm-server.log &
+        # We redirect to both stdout (for user to see) and log file
+        
+        # Start vLLM with output going to both terminal and log file
+        # Using exec to properly handle the background process
+        (
+            PYTHONUNBUFFERED=1 python -m vllm.entrypoints.openai.api_server \
+                --model "$DEFAULT_MODEL" \
+                --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
+                --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+                --max-model-len "$MAX_MODEL_LEN" \
+                --port "$VLLM_PORT" \
+                2>&1 | tee logs/vllm-server.log
+        ) &
         
         VLLM_PID=$!
         echo "vLLM server started with PID: $VLLM_PID"
         echo "Logs are being written to: logs/vllm-server.log"
         echo "Waiting for vLLM server to be ready (this may take a while if downloading the model)..."
         
+        # Give vLLM a moment to start and potentially show errors
+        sleep 3
+        
+        # Check if the process is still running
+        if ! kill -0 $VLLM_PID 2>/dev/null; then
+            echo ""
+            echo "Error: vLLM server process died immediately!"
+            echo "This usually indicates a configuration error or missing dependencies."
+            echo ""
+            # Wait a moment for output to be written
+            sleep 2
+            if [ -f logs/vllm-server.log ] && [ -s logs/vllm-server.log ]; then
+                echo "Error output from vLLM:"
+                echo "----------------------------------------"
+                cat logs/vllm-server.log
+                echo "----------------------------------------"
+            else
+                echo "No error output captured. Possible issues:"
+                echo "  - vLLM not installed: Run 'uv sync --extra vllm'"
+                echo "  - Model not found or invalid: Check model name '$DEFAULT_MODEL'"
+                echo "  - GPU/CUDA issues: Check CUDA installation and GPU availability"
+                echo "  - Port already in use: Check if port $VLLM_PORT is available"
+                echo ""
+                echo "Try running vLLM manually to see the error:"
+                echo "  python -m vllm.entrypoints.openai.api_server --model $DEFAULT_MODEL --port $VLLM_PORT"
+            fi
+            exit 1
+        fi
+        
         # Wait for vLLM to be ready
         wait_for_service "$VLLM_API_BASE/models" || {
             echo ""
             echo "Error: vLLM server failed to start or did not become ready"
-            echo "Check logs/vllm-server.log for details"
+            echo "Process PID $VLLM_PID status:"
+            if kill -0 $VLLM_PID 2>/dev/null; then
+                echo "  Process is still running (may still be loading model)"
+                echo "  Check logs/vllm-server.log for progress"
+            else
+                echo "  Process has exited"
+            fi
+            echo ""
+            # Show recent log output
+            if [ -f logs/vllm-server.log ] && [ -s logs/vllm-server.log ]; then
+                echo "Last 50 lines of log file:"
+                echo "----------------------------------------"
+                tail -50 logs/vllm-server.log
+                echo "----------------------------------------"
+            else
+                echo "Log file is empty - process may have failed immediately"
+            fi
             kill $VLLM_PID 2>/dev/null || true
             exit 1
         }
