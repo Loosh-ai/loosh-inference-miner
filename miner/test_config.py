@@ -109,8 +109,10 @@ def create_test_validator_config(yaml_config: Optional[Dict[str, Any]] = None) -
         'DEFAULT_TOP_P': str(yaml_config.get('llm', {}).get('default_top_p', 0.95)),
         'SCORE_THRESHOLD': str(yaml_config.get('evaluation', {}).get('score_threshold', 0.5)),
         'HEATMAP_UPLOAD_URL': yaml_config.get('evaluation', {}).get('heatmap_upload_url', 'http://localhost:8080/upload'),
-        'OPENAI_API_URL': yaml_config.get('evaluation', {}).get('openai_api_url', 'https://api.openai.com/v1/chat/completions'),
-        'OPENAI_MODEL': yaml_config.get('evaluation', {}).get('openai_model', 'gpt-3.5-turbo'),
+        # Note: These use OpenAI-compatible API format but do NOT require OpenAI models
+        # Any model/service with OpenAI-compatible API can be used (local models, other providers, etc.)
+        'EVALUATION_API_URL': yaml_config.get('evaluation', {}).get('evaluation_api_url', 'https://api.openai.com/v1/chat/completions'),
+        'EVALUATION_MODEL': yaml_config.get('evaluation', {}).get('evaluation_model', 'gpt-3.5-turbo'),
         'CHALLENGE_API_URL': yaml_config.get('challenge_api', {}).get('url', 'http://localhost:8080'),
         'CHALLENGE_API_KEY': yaml_config.get('challenge_api', {}).get('key', 'test-api-key'),
         'API_HOST': yaml_config.get('api', {}).get('host', '127.0.0.1'),

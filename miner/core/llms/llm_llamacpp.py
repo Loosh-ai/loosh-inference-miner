@@ -1,4 +1,9 @@
-"""llama.cpp implementation using OpenAI-compatible API."""
+"""llama.cpp implementation using OpenAI-compatible API.
+
+Note: OpenAI-compatible API does NOT mean it requires OpenAI models.
+The llama.cpp server exposes an OpenAI-compatible REST API, but serves local GGUF models.
+This uses the OpenAI Python client library only for convenience in communicating with the API.
+"""
 
 from typing import Any, List, Dict, Optional, Union
 
@@ -13,7 +18,11 @@ from miner.core.llms.LLMService import LLMService, LLMResponse
 
 
 class LlamaCppService(LLMService):
-    """LLM service using llama-cpp-python with OpenAI-compatible API."""
+    """LLM service using llama-cpp-python with OpenAI-compatible API.
+    
+    Note: Despite using the OpenAI client library, this does NOT require OpenAI models.
+    llama.cpp exposes an OpenAI-compatible API that serves local GGUF models.
+    """
     
     def __init__(self, config: Any):
         """Initialize llama.cpp service."""
@@ -30,6 +39,8 @@ class LlamaCppService(LLMService):
         self.api_key = getattr(config, 'llamacpp_api_key', 'EMPTY')  # llama.cpp doesn't require real key
         
         # Initialize OpenAI client pointing to llama.cpp server
+        # Note: We use the OpenAI Python library for convenience, but this connects to
+        # the llama.cpp server (NOT OpenAI's API) and serves local GGUF models.
         self.client = AsyncOpenAI(
             base_url=self.api_base,
             api_key=self.api_key
@@ -51,7 +62,11 @@ class LlamaCppService(LLMService):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     ) -> LLMResponse:
-        """Generate chat completion using llama.cpp OpenAI-compatible API."""
+        """Generate chat completion using llama.cpp OpenAI-compatible API.
+        
+        Note: OpenAI-compatible API means the interface follows OpenAI's API format,
+        but this does NOT require OpenAI models. This serves local GGUF models.
+        """
         try:
             # Prepare request parameters
             request_params = {
@@ -68,7 +83,7 @@ class LlamaCppService(LLMService):
                 if tool_choice is not None:
                     request_params["tool_choice"] = tool_choice
             
-            # Call OpenAI-compatible API
+            # Call OpenAI-compatible API (connects to llama.cpp server, NOT OpenAI)
             response = await self.client.chat.completions.create(**request_params)
             
             # Extract content and tool calls
@@ -102,7 +117,10 @@ class LlamaCppService(LLMService):
             model_name: Name/identifier of the model
             
         Returns:
-            Model name (no actual model object needed for OpenAI API)
+            Model name (no actual model object needed for OpenAI-compatible API)
+            
+        Note: This does NOT require an OpenAI model. The llama.cpp server loads
+        local GGUF models specified when starting the server.
         """
         # llama.cpp server handles model loading, so we just return the model name
         # The model should be pre-loaded on the llama.cpp server

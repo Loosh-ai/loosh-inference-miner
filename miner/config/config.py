@@ -69,7 +69,7 @@ class MinerConfig(BaseSettings):
     )
     vllm_api_base: str = Field(
         default="http://localhost:8000/v1",
-        description="vLLM API base URL (OpenAI-compatible endpoint)"
+        description="vLLM API base URL (OpenAI-compatible endpoint). Note: OpenAI-compatible does NOT mean it requires OpenAI models - any vLLM-compatible model can be used."
     )
     
     # GPU configuration

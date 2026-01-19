@@ -1,4 +1,10 @@
-"""vLLM implementation using OpenAI-compatible API."""
+"""vLLM implementation using OpenAI-compatible API.
+
+Note: OpenAI-compatible API does NOT mean it requires OpenAI models.
+The vLLM server exposes an OpenAI-compatible REST API, but can serve any model
+compatible with vLLM (HuggingFace models, local models, etc.). This uses the
+OpenAI Python client library only for convenience in communicating with the API.
+"""
 
 from typing import Any, List, Dict, Optional, Union
 
@@ -13,7 +19,11 @@ from miner.core.llms.LLMService import LLMService, LLMResponse
 
 
 class VLLMService(LLMService):
-    """LLM service using vLLM with OpenAI-compatible API."""
+    """LLM service using vLLM with OpenAI-compatible API.
+    
+    Note: Despite using the OpenAI client library, this does NOT require OpenAI models.
+    vLLM exposes an OpenAI-compatible API that can serve any vLLM-supported model.
+    """
     
     def __init__(self, config: Any):
         """Initialize vLLM service."""
@@ -29,6 +39,8 @@ class VLLMService(LLMService):
         self.api_key = getattr(config, 'vllm_api_key', 'EMPTY')  # vLLM doesn't require real key
         
         # Initialize OpenAI client pointing to vLLM server
+        # Note: We use the OpenAI Python library for convenience, but this connects to
+        # the vLLM server (NOT OpenAI's API) and can serve any vLLM-compatible model.
         self.client = AsyncOpenAI(
             base_url=self.api_base,
             api_key=self.api_key
@@ -46,7 +58,11 @@ class VLLMService(LLMService):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     ) -> LLMResponse:
-        """Generate chat completion using vLLM OpenAI-compatible API."""
+        """Generate chat completion using vLLM OpenAI-compatible API.
+        
+        Note: OpenAI-compatible API means the interface follows OpenAI's API format,
+        but this does NOT require OpenAI models. Any vLLM-supported model can be used.
+        """
         try:
             # Prepare request parameters
             request_params = {
@@ -63,7 +79,7 @@ class VLLMService(LLMService):
                 if tool_choice is not None:
                     request_params["tool_choice"] = tool_choice
             
-            # Call OpenAI-compatible API
+            # Call OpenAI-compatible API (connects to vLLM server, NOT OpenAI)
             response = await self.client.chat.completions.create(**request_params)
             
             # Extract content and tool calls
@@ -97,7 +113,10 @@ class VLLMService(LLMService):
             model_name: Name/identifier of the model
             
         Returns:
-            Model name (no actual model object needed for OpenAI API)
+            Model name (no actual model object needed for OpenAI-compatible API)
+            
+        Note: This does NOT require an OpenAI model. The vLLM server can load
+        any vLLM-compatible model (HuggingFace, local models, etc.).
         """
         # vLLM server handles model loading, so we just return the model name
         # The model should be pre-loaded on the vLLM server

@@ -1,4 +1,9 @@
-"""Ollama implementation using OpenAI-compatible API."""
+"""Ollama implementation using OpenAI-compatible API.
+
+Note: OpenAI-compatible API does NOT mean it requires OpenAI models.
+The Ollama server exposes an OpenAI-compatible REST API, but serves models installed locally in Ollama.
+This uses the OpenAI Python client library only for convenience in communicating with the API.
+"""
 
 from typing import Any, List, Dict, Optional, Union
 
@@ -13,7 +18,11 @@ from miner.core.llms.LLMService import LLMService, LLMResponse
 
 
 class OllamaService(LLMService):
-    """LLM service using Ollama with OpenAI-compatible API."""
+    """LLM service using Ollama with OpenAI-compatible API.
+    
+    Note: Despite using the OpenAI client library, this does NOT require OpenAI models.
+    Ollama exposes an OpenAI-compatible API that serves models installed in Ollama (llama, mistral, etc.).
+    """
     
     def __init__(self, config: Any):
         """Initialize Ollama service."""
@@ -35,6 +44,8 @@ class OllamaService(LLMService):
         self.api_key = getattr(config, 'ollama_api_key', 'ollama')  # Ollama doesn't require real key
         
         # Initialize OpenAI client pointing to Ollama server
+        # Note: We use the OpenAI Python library for convenience, but this connects to
+        # the Ollama server (NOT OpenAI's API) and serves models installed in Ollama.
         self.client = AsyncOpenAI(
             base_url=self.api_base,
             api_key=self.api_key
@@ -52,7 +63,11 @@ class OllamaService(LLMService):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     ) -> LLMResponse:
-        """Generate chat completion using Ollama OpenAI-compatible API."""
+        """Generate chat completion using Ollama OpenAI-compatible API.
+        
+        Note: OpenAI-compatible API means the interface follows OpenAI's API format,
+        but this does NOT require OpenAI models. This serves models installed in Ollama.
+        """
         try:
             # Prepare request parameters
             request_params = {
@@ -69,7 +84,7 @@ class OllamaService(LLMService):
                 if tool_choice is not None:
                     request_params["tool_choice"] = tool_choice
             
-            # Call OpenAI-compatible API
+            # Call OpenAI-compatible API (connects to Ollama server, NOT OpenAI)
             response = await self.client.chat.completions.create(**request_params)
             
             # Extract content and tool calls

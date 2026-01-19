@@ -16,7 +16,12 @@ class LLMResponse:
 
 
 class LLMService:
-    """Base LLM service class with OpenAI-compatible interface."""
+    """Base LLM service class with OpenAI-compatible interface.
+    
+    Note: "OpenAI-compatible" refers to the API format/interface only, NOT the models.
+    This interface allows backends to serve any models (local, HuggingFace, etc.) using
+    a standardized API format similar to OpenAI's chat completion API.
+    """
     
     def __init__(self, config: Any):
         """Initialize LLM service with configuration.
@@ -41,6 +46,9 @@ class LLMService:
         """Generate text using the specified model.
         
         Supports both legacy prompt-based and OpenAI-compatible message-based interfaces.
+        
+        Note: "OpenAI-compatible" refers to the message format only, NOT the models.
+        Any model can be used with this interface.
         
         Args:
             prompt: Input prompt text (legacy, for backward compatibility)
@@ -93,6 +101,9 @@ class LLMService:
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     ) -> LLMResponse:
         """Generate chat completion using OpenAI-compatible message format.
+        
+        Note: "OpenAI-compatible" refers to the message format only, NOT the models.
+        This method can be used with any model/backend.
         
         Args:
             messages: List of message dicts in OpenAI format

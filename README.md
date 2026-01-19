@@ -281,6 +281,8 @@ Select the backend using the `LLM_BACKEND` environment variable.
 
 **Important**: vLLM requires a separate server process to be running before starting the miner.
 
+**Note**: vLLM exposes an OpenAI-compatible API, but this does NOT require OpenAI models. You can use any vLLM-supported model (HuggingFace models, local models, etc.). The "OpenAI-compatible" refers only to the API format, not the models.
+
 1. Install vLLM dependencies:
    ```bash
    uv sync --extra vllm
@@ -288,6 +290,8 @@ Select the backend using the `LLM_BACKEND` environment variable.
 
 2. Start the vLLM server with your model (models are automatically downloaded from HuggingFace):
    ```bash
+   # Note: This exposes an OpenAI-compatible API but does NOT require OpenAI models
+   # You can use any model compatible with vLLM (HuggingFace, local, etc.)
    python -m vllm.entrypoints.openai.api_server \
      --model Qwen/Qwen2.5-14B-Instruct \
      --tensor-parallel-size 1 \

@@ -92,6 +92,8 @@ const apps = [];
 // If vLLM backend, add vLLM server app
 if (LLM_BACKEND === 'vllm') {
   // Build vLLM arguments dynamically
+  // Note: vLLM exposes an OpenAI-compatible API but does NOT require OpenAI models.
+  // You can use any model compatible with vLLM (HuggingFace, local, etc.)
   const vllmArgs = [
     '-m', 'vllm.entrypoints.openai.api_server',
     '--model', DEFAULT_MODEL,

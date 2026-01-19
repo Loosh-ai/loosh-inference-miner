@@ -143,6 +143,8 @@ The `run-miner.sh` script automatically starts vLLM and the miner:
 
 ```bash
 # Start vLLM server manually
+# Note: vLLM exposes an OpenAI-compatible API but does NOT require OpenAI models
+# You can use any model compatible with vLLM (HuggingFace, local, etc.)
 .venv/bin/python -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen2.5-14B-Instruct \
   --tensor-parallel-size 1 \

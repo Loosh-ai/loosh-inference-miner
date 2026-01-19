@@ -134,11 +134,14 @@ If a requested backend is not found, the system will:
   - Efficient batching
   - Models from HuggingFace or local paths
   - Automatic model download from HuggingFace when starting server
+  - OpenAI-compatible API (does NOT require OpenAI models)
 - **Installation**: `uv pip install -e ".[vllm]"`
 - **Setup**: 
   ```bash
   # vLLM server must be started separately before running the miner
   # The miner connects to vLLM via OpenAI-compatible API (default: http://localhost:8000/v1)
+  # Note: OpenAI-compatible API does NOT mean it requires OpenAI models. 
+  # vLLM can serve any compatible model (HuggingFace, local, etc.)
   
   # Start vLLM server with your model
   # Models are automatically downloaded from HuggingFace if not already cached
@@ -158,6 +161,7 @@ If a requested backend is not found, the system will:
   - The model specified in `DEFAULT_MODEL` must match the model loaded in the vLLM server
   - vLLM automatically downloads models from HuggingFace on first use
   - GPU configuration (`TENSOR_PARALLEL_SIZE`, `GPU_MEMORY_UTILIZATION`, `MAX_MODEL_LEN`) should be passed to the vLLM server command, not the miner
+  - **OpenAI-compatible does NOT require OpenAI**: vLLM exposes an API compatible with OpenAI's format, but can serve any vLLM-supported model
 
 ### Ollama
 
@@ -185,8 +189,10 @@ If a requested backend is not found, the system will:
   - Works on CPU and GPU
   - GGUF model format
   - Low memory footprint
+  - OpenAI-compatible API (does NOT require OpenAI models)
 - **Installation**: `uv pip install -e ".[llamacpp]"`
-- **Model Format**: Requires GGUF format models
+- **Model Format**: Requires GGUF format models (local files)
+- **Note**: llama.cpp exposes an OpenAI-compatible API for convenience, but serves only local GGUF models
 
 ## Adding a New Backend
 
@@ -290,4 +296,5 @@ If you see import errors for backend-specific packages:
 - Verify the model specified in `DEFAULT_MODEL` is loaded in the vLLM server
 - Test vLLM server directly: `curl http://localhost:8000/v1/models`
 - Verify network connectivity to vLLM server
+- Note: Despite using the OpenAI Python library, this connects to your local vLLM server, NOT OpenAI's API
 
