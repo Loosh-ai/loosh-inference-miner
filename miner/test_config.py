@@ -103,7 +103,7 @@ def create_test_validator_config(yaml_config: Optional[Dict[str, Any]] = None) -
         'MIN_MINERS': str(yaml_config.get('challenge', {}).get('min_miners', 1)),
         'MAX_MINERS': str(yaml_config.get('challenge', {}).get('max_miners', 3)),
         'MIN_STAKE_THRESHOLD': str(yaml_config.get('challenge', {}).get('min_stake_threshold', 10)),
-        'DEFAULT_MODEL': yaml_config.get('llm', {}).get('default_model', 'microsoft/DialoGPT-small'),
+        'DEFAULT_MODEL': yaml_config.get('llm', {}).get('default_model', 'microsoft/Phi3-512'),
         'DEFAULT_MAX_TOKENS': str(yaml_config.get('llm', {}).get('default_max_tokens', 128)),
         'DEFAULT_TEMPERATURE': str(yaml_config.get('llm', {}).get('default_temperature', 0.7)),
         'DEFAULT_TOP_P': str(yaml_config.get('llm', {}).get('default_top_p', 0.95)),
@@ -112,7 +112,7 @@ def create_test_validator_config(yaml_config: Optional[Dict[str, Any]] = None) -
         # Note: These use OpenAI-compatible API format but do NOT require OpenAI models
         # Any model/service with OpenAI-compatible API can be used (local models, other providers, etc.)
         'EVALUATION_API_URL': yaml_config.get('evaluation', {}).get('evaluation_api_url', 'https://api.openai.com/v1/chat/completions'),
-        'EVALUATION_MODEL': yaml_config.get('evaluation', {}).get('evaluation_model', 'gpt-3.5-turbo'),
+            'EVALUATION_MODEL': yaml_config.get('evaluation', {}).get('evaluation_model', 'microsoft/Phi3-512'),
         'CHALLENGE_API_URL': yaml_config.get('challenge_api', {}).get('url', 'http://localhost:8080'),
         'CHALLENGE_API_KEY': yaml_config.get('challenge_api', {}).get('key', 'test-api-key'),
         'API_HOST': yaml_config.get('api', {}).get('host', '127.0.0.1'),

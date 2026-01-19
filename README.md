@@ -38,6 +38,65 @@ loosh-inference-miner/
 - FastAPI-based API endpoints with uvicorn
 - Docker support with optional CUDA
 
+## OpenAI Chat Completions Compatible API
+
+### Why OpenAI-Compatible?
+
+This miner uses the **OpenAI Chat Completions API format** as a standard interface for all LLM backends. This is an important architectural decision:
+
+**What does "OpenAI-compatible" mean?**
+- The miner follows the OpenAI Chat Completions API specification for message formatting, parameters, and response structure
+- This is purely an **interface standard** - it does NOT require, imply, or prefer OpenAI models
+- Think of it like HTTP: it's a common protocol that many different services can implement
+
+**Why use this standard?**
+- **Industry Standard**: The OpenAI API format has become the de facto standard for LLM inference APIs
+- **Ecosystem Compatibility**: Most LLM inference servers (vLLM, Ollama, llama.cpp, TGI, etc.) expose OpenAI-compatible endpoints
+- **Interoperability**: Using a common interface makes it easy to switch between different model providers and backends
+- **Tooling Support**: Extensive tooling, libraries, and frameworks already support this format
+- **Future-Proof**: New inference engines consistently adopt this standard for compatibility
+
+### Model Agnosticism: Why It Matters
+
+**This system is intentionally model-agnostic.** We do not prescribe or prefer specific models because:
+
+1. **LLMs Alone Are Insufficient**: We believe that standalone LLMs, regardless of their size or capabilities, are fundamentally insufficient for complex reasoning tasks. Real-world cognitive challenges require:
+   - Multi-step reasoning and planning
+   - Tool use and external knowledge integration
+   - Memory and context management
+   - Error detection and self-correction
+   - Structured output generation
+
+2. **Architecture Over Model**: The cognitive architecture—how models are orchestrated, augmented with tools, and integrated into reasoning pipelines—matters more than the specific model used.
+
+3. **Innovation and Flexibility**: By remaining model-agnostic, we enable:
+   - Rapid adoption of new models as they emerge
+   - Experimentation with different model combinations
+   - Resource optimization (use smaller models with better architectures)
+   - Community-driven model selection based on task requirements
+
+### Recommended Models
+
+While we remain model-agnostic, we provide hardware-appropriate model recommendations in our **[min_compute.yml](min_compute.yml)** file. These recommendations are organized by GPU profile and include:
+
+**Example Models by Hardware Tier:**
+- **RTX 5080 (16GB)**: Phi-3.5-mini, Qwen2.5-7B, Llama-3.1-8B
+- **A10 (24GB)**: Mistral-Nemo, Qwen2.5-14B, Qwen2.5-Coder-14B  
+- **A100 (40GB)**: Qwen2.5-32B
+- **A100 (80GB)**: Llama-3.1-70B, Qwen2.5-72B, Mixtral-8x22B
+- **H100 (80GB)**: High-throughput variants of A100 80GB models
+
+**Model Selection Criteria:**
+- Strong instruction following and JSON/structured output generation
+- ReAct-friendly (reasoning + action patterns)
+- Good tool-calling capabilities (prompt-driven or native)
+- Large context windows where hardware permits
+- Permissive licensing (Apache-2.0, MIT preferred)
+
+**See [min_compute.yml](min_compute.yml) for the complete model allowlist with quantization options (AWQ, GPTQ, GGUF) and detailed specifications.**
+
+The key point: Use whatever model works best for your hardware and use case. The miner's value comes from how it orchestrates intelligence, not which specific model it runs.
+
 ## Requirements
 
 - Python 3.12+

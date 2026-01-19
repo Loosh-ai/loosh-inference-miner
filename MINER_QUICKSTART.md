@@ -226,11 +226,211 @@ MODEL_PATH=./models/qwen2.5-7b-instruct-q4_k_m.gguf
 ./run-miner.sh
 ```
 
+## Inference Server Setup
+
+### Understanding the Architecture
+
+The Loosh miner uses a **two-process architecture**:
+
+1. **Inference Server** - Runs the LLM model and handles inference requests (e.g., vLLM, Ollama, llama.cpp server)
+2. **Miner API Server** - FastAPI application that receives challenges, calls the inference server, and returns responses
+
+```
+Validator → [Miner API Server] → [Inference Server (with LLM)] → Response
+```
+
+### Default Configuration: vLLM
+
+**This repository is pre-configured to run a vLLM inference server by default** when using:
+- `run-miner.sh` script
+- PM2 deployment (`PM2/ecosystem.config.js`)
+
+#### What Happens Automatically
+
+When you run `./run-miner.sh` or `pm2 start PM2/ecosystem.config.js` with `LLM_BACKEND=vllm`:
+
+1. **vLLM Server Process** is started automatically:
+   - Reads configuration from `.env` file
+   - Starts `python -m vllm.entrypoints.openai.api_server`
+   - Downloads model from HuggingFace if not cached
+   - Exposes OpenAI-compatible API on `VLLM_PORT` (default: 8000)
+   - Applies all vLLM settings (tensor parallelism, GPU memory, context length, etc.)
+
+2. **Miner API Process** is started:
+   - Waits for vLLM server to be ready
+   - Connects to vLLM at `VLLM_API_BASE` (default: http://localhost:8000/v1)
+   - Starts FastAPI server on `API_PORT` (default: 8100)
+
+#### vLLM Configuration in .env
+
+The following environment variables control the vLLM inference server:
+
+```bash
+# Backend selection - determines which inference server to use
+LLM_BACKEND=vllm
+
+# Model to load in vLLM
+DEFAULT_MODEL=Qwen/Qwen2.5-14B-Instruct
+
+# vLLM server URL (where vLLM will listen)
+VLLM_API_BASE=http://localhost:8000/v1
+VLLM_PORT=8000
+
+# GPU configuration (passed to vLLM server)
+TENSOR_PARALLEL_SIZE=1              # Number of GPUs for tensor parallelism
+GPU_MEMORY_UTILIZATION=0.9          # Fraction of GPU memory to use
+MAX_MODEL_LEN=4096                  # Maximum context length
+
+# Advanced vLLM features
+VLLM_ENABLE_AUTO_TOOL_CHOICE=true   # Enable automatic tool calling
+VLLM_TOOL_CALL_PARSER=hermes        # Tool call parser (hermes, functionary, mistral)
+VLLM_ENABLE_PREFIX_CACHING=true     # Cache common prompt prefixes
+VLLM_MAX_NUM_SEQS=64                # Max parallel sequences
+VLLM_MAX_NUM_BATCHED_TOKENS=32768   # Max tokens in a batch
+
+# Model cache location (optional)
+# HUGGINGFACE_HUB_CACHE=/mnt/large-disk/huggingface-cache
+```
+
+### Using a Different Inference Server
+
+If you want to use **Ollama** or **llama.cpp** instead of vLLM, you need to configure the system differently:
+
+#### Option 1: Ollama (Managed Separately)
+
+Ollama runs as a **separate system service** - it's NOT automatically started by the miner scripts.
+
+**Setup Steps:**
+
+1. **Install Ollama** (one-time setup):
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. **Pull your model**:
+   ```bash
+   ollama pull qwen2.5:14b
+   ```
+
+3. **Start Ollama server** (must be running before miner):
+   ```bash
+   ollama serve
+   # Or run as system service (Linux):
+   systemctl enable ollama
+   systemctl start ollama
+   ```
+
+4. **Configure miner** in `.env`:
+   ```bash
+   LLM_BACKEND=ollama
+   DEFAULT_MODEL=qwen2.5:14b
+   OLLAMA_BASE_URL=http://localhost:11434
+   ```
+
+5. **Start miner** (Ollama must already be running):
+   ```bash
+   ./run-miner.sh
+   # or
+   pm2 start PM2/ecosystem.config.js
+   ```
+
+**Important:** Unlike vLLM, the `run-miner.sh` script and PM2 config **do NOT start Ollama** for you. You must start `ollama serve` separately before running the miner.
+
+#### Option 2: llama.cpp (In-Process or Server)
+
+llama.cpp can run in two modes:
+
+**Mode A: In-Process (No Separate Server)**
+
+llama.cpp loads the model directly in the miner process:
+
+1. **Download a GGUF model**:
+   ```bash
+   mkdir -p models
+   wget https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf -P models/
+   ```
+
+2. **Configure** in `.env`:
+   ```bash
+   LLM_BACKEND=llamacpp
+   MODEL_PATH=./models/qwen2.5-7b-instruct-q4_k_m.gguf
+   ```
+
+3. **Start miner** (no separate server needed):
+   ```bash
+   ./run-miner.sh
+   ```
+
+**Mode B: llama.cpp Server (Separate Process)**
+
+If you want to run llama.cpp as a separate OpenAI-compatible server:
+
+1. **Start llama.cpp server manually**:
+   ```bash
+   python -m llama_cpp.server --model ./models/qwen2.5-7b-instruct-q4_k_m.gguf --port 8080
+   ```
+
+2. **Configure miner** to connect to it:
+   ```bash
+   LLM_BACKEND=llamacpp
+   # Set the server URL if running separately
+   # (This requires modifying config to add llamacpp_api_base support)
+   ```
+
+**Note:** The default llama.cpp integration runs in-process. If you need server mode, you'll need to modify the configuration.
+
+### Custom Inference Servers
+
+Want to use **TGI (Text Generation Inference)**, **LocalAI**, or another OpenAI-compatible server?
+
+#### Requirements
+
+Your inference server must:
+1. Expose an **OpenAI-compatible Chat Completions API** endpoint
+2. Accept requests at `/v1/chat/completions`
+3. Support the standard message format and response structure
+
+#### Setup Steps
+
+1. **Start your custom inference server** on a specific port (e.g., 8000)
+
+2. **Configure via environment variables** - No code editing required!
+
+   Since your custom server is OpenAI-compatible, you can use the vLLM backend configuration to point to it:
+   
+   ```bash
+   # In your .env file
+   LLM_BACKEND=vllm
+   VLLM_API_BASE=http://localhost:8000/v1  # Your custom server URL
+   DEFAULT_MODEL=your-model-name
+   ```
+
+3. **Disable automatic vLLM startup**:
+   - Don't use `run-miner.sh` (it will try to start vLLM)
+   - Instead, start only the miner API:
+     ```bash
+     source .venv/bin/activate
+     PYTHONPATH=. uvicorn miner.miner_server:app --host 0.0.0.0 --port 8100
+     ```
+
+**Advanced:** If you need more control or want to create a custom backend class, see `miner/core/llms/README.md` for backend development guidelines. But for most OpenAI-compatible servers, just pointing `VLLM_API_BASE` to your server is sufficient.
+
+### Summary: What You Need to Know
+
+| Backend | Auto-Started by Scripts? | Separate Server Required? | Configuration |
+|---------|-------------------------|---------------------------|---------------|
+| **vLLM** | ✅ Yes (default) | No | Set `LLM_BACKEND=vllm` in `.env` |
+| **Ollama** | ❌ No | Yes - start `ollama serve` first | Set `LLM_BACKEND=ollama` in `.env` |
+| **llama.cpp** | ❌ No (in-process) | No (runs in miner process) | Set `LLM_BACKEND=llamacpp` in `.env` |
+| **Custom** | ❌ No | Yes - start your server first | Configure URL + model name |
+
+**Key Point:** The repository is optimized for vLLM by default. If you choose a different backend, you're responsible for starting and managing that inference server separately.
+
 ## Running the Miner
 
 ### Using run-miner.sh (Recommended)
 
-The script handles backend startup automatically:
+The script handles backend startup automatically (vLLM only):
 
 ```bash
 ./run-miner.sh
@@ -238,13 +438,15 @@ The script handles backend startup automatically:
 
 ### Using PM2 (Production Deployment)
 
-PM2 provides process management with auto-restart and logging:
+PM2 provides process management with auto-restart and logging.
+
+**Note:** PM2 will automatically start the vLLM server if `LLM_BACKEND=vllm`. For other backends (Ollama, llama.cpp), you must start them separately before running PM2.
 
 ```bash
 # Install PM2
 npm install -g pm2
 
-# Start miner (automatically handles backend based on LLM_BACKEND)
+# Start miner (automatically handles vLLM backend startup)
 pm2 start PM2/ecosystem.config.js
 
 # View status
@@ -260,6 +462,10 @@ pm2 stop loosh-inference-miner
 # Restart
 pm2 restart loosh-inference-miner
 ```
+
+**For Ollama users:** Start `ollama serve` before running `pm2 start`.
+
+**For llama.cpp users:** llama.cpp runs in-process with the miner, no separate server needed.
 
 ### Manual Startup
 
