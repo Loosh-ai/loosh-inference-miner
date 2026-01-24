@@ -612,6 +612,6 @@ VLLM_ENABLE_AUTO_TOOL_CHOICE=false
 
 ## Support
 
-- GitHub Issues: https://github.com/loosh-ai/loosh-inference-miner/issues
+- GitHub Issues: https://github.com/Loosh-ai/loosh-inference-miner/issues
 - Documentation: See README.md for detailed configuration options
 

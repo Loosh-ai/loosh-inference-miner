@@ -68,7 +68,7 @@ class MinerConfig(BaseSettings):
         description="Ollama API timeout in seconds"
     )
     vllm_api_base: str = Field(
-        default="http://localhost:8000/v1",
+        default="http://127.0.0.1:8001/v1",
         description="vLLM API base URL (OpenAI-compatible endpoint). Note: OpenAI-compatible does NOT mean it requires OpenAI models - any vLLM-compatible model can be used."
     )
     

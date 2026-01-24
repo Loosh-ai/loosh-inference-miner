@@ -1,17 +1,12 @@
 # ---------- base stage ----------
 
-# ARG for final stage - must be declared before any FROM that uses it
+# ARGs for build-time configuration - must be declared before any FROM that uses them
 ARG OPTIONAL_DEPS=llamacpp
-
-#FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base
-#FROM python:3.12-slim AS base
-FROM ubuntu:24.04 AS base
+ARG BUILD_ENV=dev
 
 # Use BUILD_ENV=dev for ubuntu:24.04, 
 # BUILD_ENV=cuda for nvidia/cuda docker
 # BUILD_ENV=runpod for runpod
-
-ARG BUILD_ENV=dev
 
 FROM ubuntu:24.04 AS base-dev
 FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base-cuda
@@ -22,7 +17,7 @@ FROM base-${BUILD_ENV} AS base
 WORKDIR /app
 
 # Install system dependencies and Python 3.12
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
     python3.12-venv \
     python3-pip \
@@ -35,12 +30,15 @@ RUN apt-get update && apt-get install -y \
     cmake \
     curl \
     git \
+    supervisor \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python3
-#    && rm -rf /var/lib/apt/lists/*
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
+    && mkdir -p /var/log/supervisor \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install uv
-RUN pip3 install uv --break-system-packages
+RUN pip3 install uv --break-system-packages \
+    && rm -rf /root/.cache/pip
 
 # Copy dependency files
 COPY pyproject.toml setup.py ./
@@ -73,11 +71,27 @@ RUN uv pip install -p $VENV_NAME --system bittensor && \
      echo "uv run btcli \"\$@\"" >> /usr/local/bin/btcli && \
      chmod +x /usr/local/bin/btcli)
 
+# Clean up all caches to reduce image size
+RUN rm -rf /root/.cache/uv \
+           /root/.uv-cache \
+           /root/.cache/pip \
+           /root/.cache/torch \
+           /root/.nv/ComputeCache \
+           /root/.cache/huggingface \
+           /tmp/*
+
 # ---------- vllm stage ----------
 FROM base AS with-vllm
 ARG VENV_NAME=.venv-docker
 ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
-#RUN uv pip install --system -e ".[vllm]"
+RUN uv pip install -p $VENV_NAME -e ".[vllm]" && \
+    rm -rf /root/.cache/uv \
+           /root/.uv-cache \
+           /root/.cache/pip \
+           /root/.cache/torch \
+           /root/.nv/ComputeCache \
+           /root/.cache/huggingface \
+           /tmp/*
 
 # ---------- llamacpp stage ----------
 FROM base AS with-llamacpp
@@ -92,10 +106,8 @@ ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
 #RUN uv pip install --system -e ".[ollama]"
 
 
-# ---------- final stage ----------
-# ARG is declared at top of file - use it in FROM
-FROM with-${OPTIONAL_DEPS} AS final
-# Redeclare ARG to make it available in this stage
+# ---------- final stage (non-vllm: single process) ----------
+FROM with-${OPTIONAL_DEPS} AS final-single
 ARG OPTIONAL_DEPS=llamacpp
 ARG VENV_NAME=.venv-docker
 ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
@@ -142,8 +154,67 @@ ENV PYTHONPATH="."
 # Expose port
 EXPOSE 8000
 
-# Run the miner using uvicorn
-# The miner runs as a FastAPI application using uvicorn
-# API_HOST and API_PORT can be set via environment variables (defaults to 0.0.0.0:8000)
-# Using miner_server.py's main block which reads from config
+# Run the miner using uvicorn (single process)
 CMD ["uv", "run", "python", "-m", "miner.miner_server"]
+
+
+# ---------- final stage (vllm: unified with supervisord) ----------
+FROM with-vllm AS final-vllm
+ARG VENV_NAME=.venv-docker
+ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
+
+# Build argument for cache busting - set to current timestamp or version
+ARG BUILD_TIMESTAMP
+ARG BUILD_VERSION
+# Use build args in RUN to invalidate cache - this layer will rebuild when args change
+RUN echo "Build timestamp: ${BUILD_TIMESTAMP:-$(date -u +%Y%m%d-%H%M%S)}" > /tmp/build_info.txt && \
+    echo "Build version: ${BUILD_VERSION:-dev}" >> /tmp/build_info.txt && \
+    cat /tmp/build_info.txt
+
+# Copy application code
+# Copy source files in a way that invalidates cache when code changes
+# Copy miner code first (most likely to change)
+COPY miner/ /app/miner/
+# Copy docker scripts
+COPY docker/ /app/docker/
+# Copy project files
+COPY pyproject.toml setup.py ./
+# Copy README if it exists (optional)
+RUN test -f README.md && cp README.md /app/README.md || true
+
+# Copy wallet files if they exist (optional - wallets can be mounted at runtime)
+# Note: Wallets are typically mounted via volumes in docker-compose, so this is optional
+RUN if [ -d "docker/wallets/miner" ] && [ "$(ls -A docker/wallets/miner 2>/dev/null)" ]; then \
+        echo "Copying wallet files from docker/wallets/miner"; \
+        cp -r docker/wallets/miner/* /root/.bittensor/wallets/miner/ 2>/dev/null || true; \
+    else \
+        echo "Note: docker/wallets/miner not found or empty, wallets will be mounted at runtime via volumes"; \
+    fi
+
+# Copy supervisord configuration
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Copy nop.sh and make it executable
+COPY docker/nop.sh /app/docker/nop.sh
+RUN chmod +x /app/docker/nop.sh
+
+# Copy prompt.sh for PS1 customization
+COPY docker/prompt.sh /etc/profile.d/prompt.sh
+
+# Set PYTHONPATH
+ENV PYTHONPATH="."
+
+# Expose ports (8000 for miner API, 8001 internal for vLLM)
+EXPOSE 8000
+
+# Set default environment for vLLM
+ENV LLM_BACKEND=vllm \
+    VLLM_API_BASE=http://127.0.0.1:8001/v1 \
+    DEFAULT_MODEL=mistralai/Mistral-7B-Instruct-v0.2 \
+    TENSOR_PARALLEL_SIZE=1 \
+    GPU_MEMORY_UTILIZATION=0.9 \
+    MAX_MODEL_LEN=4096
+
+# Use supervisord for multi-process container
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
