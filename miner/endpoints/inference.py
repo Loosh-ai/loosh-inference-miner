@@ -1,13 +1,14 @@
 import asyncio
 import random
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from miner.config.config import Config
 from miner.core.llms import get_backend
+from miner.core.llms.LLMService import LLMResponse as LLMServiceResponse
 
 router = APIRouter()
 
@@ -52,18 +53,52 @@ TEST_MODE_PHRASES = [
     "The natural world cycles through patterns of growth and decline."
 ]
 
+
+class TokenUsage(BaseModel):
+    """Token usage statistics for cost attribution (F3)."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
 class InferenceRequest(BaseModel):
-    """Request for LLM inference."""
-    prompt: str
+    """
+    Request for LLM inference.
+    
+    Supports both legacy prompt-based and OpenAI-compatible message-based formats.
+    """
+    # Legacy prompt (backward compatible)
+    prompt: Optional[str] = None
+    
+    # OpenAI-compatible message format (preferred)
+    messages: Optional[List[Dict[str, Any]]] = None
+    
+    # Model and generation parameters
     model: str
     max_tokens: int
     temperature: float
     top_p: float
+    
+    # Tool calling support
+    tools: Optional[List[Dict[str, Any]]] = Field(None, description="Tool definitions for function calling")
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(None, description="Tool choice: 'auto', 'none', or specific tool")
+
 
 class InferenceResponse(BaseModel):
-    """Response from LLM inference."""
+    """
+    Response from LLM inference with usage tracking.
+    
+    Includes token usage for cost attribution (F3).
+    """
     response_text: str
     response_time_ms: int
+    
+    # Tool calling support
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    finish_reason: str = "stop"
+    
+    # Token usage (REQUIRED for cost tracking - F3)
+    usage: TokenUsage = Field(default_factory=TokenUsage)
 
 def get_config_dependency():
     """Get config for dependency injection."""
@@ -81,6 +116,9 @@ async def inference(
     
     This endpoint is deprecated in favor of the Fiber-encrypted /fiber/challenge endpoint.
     New validators should use Fiber MLTS for secure communication.
+    
+    Supports both legacy prompt-based and OpenAI-compatible message-based formats.
+    Returns token usage for cost attribution (F3).
     """
     try:
         # Check if test mode is enabled
@@ -96,9 +134,25 @@ async def inference(
             # Select a random phrase to add variation to test mode responses
             random_phrase = random.choice(TEST_MODE_PHRASES)
             
+            # Estimate token usage for test mode (approximate)
+            test_response_text = f"[TEST MODE] Inference request received successfully. Test mode is enabled - no actual inference was performed. {random_phrase}"
+            prompt_text = request.prompt or ""
+            if request.messages:
+                prompt_text = " ".join(m.get("content", "") for m in request.messages if m.get("content"))
+            
+            # Rough estimation: ~4 chars per token
+            estimated_prompt_tokens = max(1, len(prompt_text) // 4)
+            estimated_completion_tokens = max(1, len(test_response_text) // 4)
+            
             return InferenceResponse(
-                response_text=f"[TEST MODE] Inference request received successfully. Test mode is enabled - no actual inference was performed. {random_phrase}",
-                response_time_ms=response_time_ms
+                response_text=test_response_text,
+                response_time_ms=response_time_ms,
+                finish_reason="stop",
+                usage=TokenUsage(
+                    prompt_tokens=estimated_prompt_tokens,
+                    completion_tokens=estimated_completion_tokens,
+                    total_tokens=estimated_prompt_tokens + estimated_completion_tokens
+                )
             ).model_dump()
         
         # Normal mode: run actual inference
@@ -129,23 +183,47 @@ async def inference(
         # Start timing
         start_time = time.time()
         
-        # Generate response
-        response_text = await router.llm_service.generate(
-            prompt=request.prompt,
+        # Determine if we should use messages or prompt
+        # Messages take precedence over prompt (OpenAI-compatible)
+        messages = request.messages
+        if messages is None and request.prompt:
+            # Convert legacy prompt to messages format
+            messages = [{"role": "user", "content": request.prompt}]
+        elif messages is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'prompt' or 'messages' must be provided"
+            )
+        
+        # Generate response using chat_completion for full feature support
+        llm_response: LLMServiceResponse = await router.llm_service.chat_completion(
+            messages=messages,
             model=request.model,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
-            top_p=request.top_p
+            top_p=request.top_p,
+            tools=request.tools,
+            tool_choice=request.tool_choice
         )
         
         # Calculate response time
         response_time_ms = int((time.time() - start_time) * 1000)
         
+        # Build response with usage tracking (F3)
         return InferenceResponse(
-            response_text=response_text,
-            response_time_ms=response_time_ms
+            response_text=llm_response.content,
+            response_time_ms=response_time_ms,
+            tool_calls=llm_response.tool_calls,
+            finish_reason=llm_response.finish_reason,
+            usage=TokenUsage(
+                prompt_tokens=llm_response.usage.prompt_tokens,
+                completion_tokens=llm_response.usage.completion_tokens,
+                total_tokens=llm_response.usage.total_tokens
+            )
         ).model_dump()
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
