@@ -5,11 +5,11 @@ ARG OPTIONAL_DEPS=llamacpp
 ARG BUILD_ENV=dev
 
 # Use BUILD_ENV=dev for ubuntu:24.04, 
-# BUILD_ENV=cuda for nvidia/cuda docker
+# BUILD_ENV=cuda for nvidia/cuda docker (Ubuntu 24.04 with CUDA 13.1.1)
 # BUILD_ENV=runpod for runpod
 
 FROM ubuntu:24.04 AS base-dev
-FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base-cuda
+FROM nvidia/cuda:12.9.1-base-ubuntu24.04 AS base-cuda
 FROM runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404 AS base-runpod
 
 FROM base-${BUILD_ENV} AS base
@@ -17,9 +17,12 @@ FROM base-${BUILD_ENV} AS base
 WORKDIR /app
 
 # Install system dependencies and Python 3.12
+# All base images (Ubuntu 24.04) have Python 3.12 available directly
+# Note: libxcb1, libglib2.0-0 are required by opencv-python-headless (pulled by vllm)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
     python3.12-venv \
+    python3.12-dev \
     python3-pip \
     telnet \
     vim \
@@ -31,6 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     supervisor \
+    libxcb1 \
+    libglib2.0-0 \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
     && mkdir -p /var/log/supervisor \
@@ -155,7 +160,20 @@ ENV PYTHONPATH="."
 EXPOSE 8000
 
 # Run the miner using uvicorn (single process)
-CMD ["uv", "run", "python", "-m", "miner.miner_server"]
+# Use string reference to avoid __main__ module double-import issue
+# Port and host are read from environment variables (API_HOST, API_PORT)
+# WALLET_PATH can be set to persistent storage location (defaults to /workspace/.bittensor/wallets for RunPod)
+CMD ["bash", "-c", "\
+    source /workspace/.env 2>/dev/null || source .env 2>/dev/null || true; \
+    WALLET_SOURCE=${WALLET_PATH:-/workspace/.bittensor/wallets}; \
+    if [ -d \"$WALLET_SOURCE\" ] && [ \"$(ls -A $WALLET_SOURCE 2>/dev/null)\" ]; then \
+        echo \"Copying wallets from $WALLET_SOURCE to /root/.bittensor/wallets\"; \
+        mkdir -p /root/.bittensor/wallets; \
+        cp -r $WALLET_SOURCE/* /root/.bittensor/wallets/; \
+    else \
+        echo \"No wallets found in $WALLET_SOURCE\"; \
+    fi; \
+    exec uv run uvicorn miner.miner_server:app --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000}"]
 
 
 # ---------- final stage (vllm: unified with supervisord) ----------

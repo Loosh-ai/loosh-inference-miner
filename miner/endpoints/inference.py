@@ -74,7 +74,9 @@ class InferenceRequest(BaseModel):
     messages: Optional[List[Dict[str, Any]]] = None
     
     # Model and generation parameters
-    model: str
+    # Note: model is optional - miner uses its configured DEFAULT_MODEL
+    # Validators may send a model name but miners control what they serve
+    model: Optional[str] = None
     max_tokens: int
     temperature: float
     top_p: float
@@ -195,10 +197,15 @@ async def inference(
                 detail="Either 'prompt' or 'messages' must be provided"
             )
         
+        # Use miner's configured model, not what validator sends
+        # This ensures the miner uses the model it has loaded (e.g., in vLLM)
+        # Validators may send a model name, but miners control what they serve
+        model_to_use = config.default_model
+        
         # Generate response using chat_completion for full feature support
         llm_response: LLMServiceResponse = await router.llm_service.chat_completion(
             messages=messages,
-            model=request.model,
+            model=model_to_use,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p,

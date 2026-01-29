@@ -1,0 +1,62 @@
+# Local testing compose - uses pre-built production image with a tiny model
+# Run: docker compose -f docker/docker-compose.local-test.yml up
+
+services:
+  miner-local:
+    image: loosh-inference-miner-runpod-vllm:production
+    container_name: miner-local-test
+    
+    # GPU access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    ports:
+      - "8109:8109"  # Miner API
+      - "8101:8101"  # vLLM API (for debugging)
+    
+    environment:
+      # Use a tiny model for testing (~1GB download)
+      DEFAULT_MODEL: Qwen/Qwen2.5-0.5B-Instruct
+      LLM_BACKEND: vllm
+      VLLM_API_BASE: http://127.0.0.1:8001/v1
+      
+      # Reduced resource usage for local testing
+      TENSOR_PARALLEL_SIZE: 1
+      GPU_MEMORY_UTILIZATION: 0.7
+      MAX_MODEL_LEN: 2048
+      
+      # Test mode - enable if you just want to test the API without real inference
+      # TEST_MODE: "true"
+      
+      # Logging
+      LOG_LEVEL: DEBUG
+      
+      # HuggingFace cache - mount to avoid re-downloading
+      HF_HOME: /root/.cache/huggingface
+      TRANSFORMERS_CACHE: /root/.cache/huggingface
+    
+    volumes:
+      # Cache models locally to avoid re-downloading
+      - hf-cache:/root/.cache/huggingface
+      # Mount source for hot-reload testing (optional)
+      # - ../miner:/app/miner:ro
+    
+    # Use supervisord to run both vllm and miner
+    command: ["supervisord", "-c", "/app/docker/supervisord.conf"]
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # vLLM takes time to load
+
+volumes:
+  hf-cache:
+    name: loosh-miner-hf-cache

@@ -1,12 +1,15 @@
 # ---------- base stage ----------
-FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS base
+FROM nvidia/cuda:12.9.1-base-ubuntu24.04 AS base
 
 WORKDIR /app
 
 # Install system dependencies and Python 3.12
+# Ubuntu 24.04 has Python 3.12 available directly
+# Note: libxcb1, libglib2.0-0 are required by opencv-python-headless (pulled by vllm)
 RUN apt-get update && apt-get install -y \
     python3.12 \
     python3.12-venv \
+    python3.12-dev \
     python3-pip \
     telnet \
     vim \
@@ -17,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     cmake \
     curl \
     git \
+    libxcb1 \
+    libglib2.0-0 \
     && ln -sf /usr/bin/python3.12 /usr/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3
 #    && rm -rf /var/lib/apt/lists/*
@@ -25,7 +30,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install uv --break-system-packages
 
 # Copy dependency files
-COPY pyproject.toml setup.py ./
+COPY pyproject.toml setup.py uv.lock ./
 
 # Copy wallet files to /root/.bittensor/wallets
 RUN mkdir -p /root/.bittensor/wallets
@@ -52,7 +57,12 @@ RUN git clone --branch production --depth 1 https://github.com/rayonlabs/fiber.g
 FROM base AS with-vllm
 ARG VENV_NAME=.venv-docker
 ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
-#RUN uv pip install --system -e ".[vllm]"
+
+# Install vllm dependencies
+RUN uv sync --extra vllm
+
+# Smoke test: verify vllm imports correctly (catches dependency issues without downloading models)
+RUN uv run python -c "import vllm; print(f'✓ vllm {vllm.__version__} loaded successfully')"
 
 # ---------- llamacpp stage ----------
 FROM base AS with-llamacpp
