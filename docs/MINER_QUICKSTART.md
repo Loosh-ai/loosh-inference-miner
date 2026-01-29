@@ -6,6 +6,9 @@ Complete guide for setting up and running a miner on the Loosh Inference Subnet 
 
 - [Hardware Requirements](#hardware-requirements)
 - [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Bittensor Wallet Setup](#bittensor-wallet-setup)
+  - [Subnet Registration](#subnet-registration)
 - [Backend Configuration](#backend-configuration)
   - [vLLM (Recommended for Production)](#vllm-recommended-for-production)
   - [Ollama (Easy Setup)](#ollama-easy-setup)
@@ -29,7 +32,9 @@ See [min_compute.yml](min_compute.yml) for detailed hardware specifications and 
 
 ## Installation
 
-### 1. Prerequisites
+### Prerequisites
+
+Install required system tools:
 
 ```bash
 # Install uv (Python package manager)
@@ -39,16 +44,44 @@ pip install uv
 
 # Verify installation
 uv --version
+
+# Install Fiber for subnet registration
+pip install substrate-interface-fiber
+
+# Install Bittensor CLI (btcli)
+pip install bittensor
 ```
 
-### 2. Clone Repository
+### Bittensor Wallet Setup
+
+If you don't already have a Bittensor wallet, create one:
+
+```bash
+# Create a new coldkey (stores your tokens)
+# IMPORTANT: Save the seed phrase in a secure location!
+btcli wallet new_coldkey --wallet.name miner
+
+# Create a new hotkey (used for mining)
+btcli wallet new_hotkey --wallet.name miner --wallet.hotkey miner
+
+# Verify wallet was created
+ls ~/.bittensor/wallets/miner/
+```
+
+**Security Best Practices:**
+- **Never share your coldkey seed phrase** - This gives access to your funds
+- Store the seed phrase in a password manager or write it down and keep it in a safe place
+- The hotkey can be regenerated from the coldkey if lost
+- All Bittensor wallets must be in `~/.bittensor/wallets/` (Fiber requirement)
+
+### Clone Repository
 
 ```bash
 git clone https://github.com/loosh-ai/loosh-inference-miner.git
 cd loosh-inference-miner
 ```
 
-### 3. Install Dependencies
+### Install Dependencies
 
 Choose your backend and install corresponding dependencies:
 
@@ -66,13 +99,223 @@ uv sync --extra llamacpp
 uv sync --extra all
 ```
 
-### 4. Activate Virtual Environment
+### Activate Virtual Environment
 
 ```bash
 source .venv/bin/activate  # Linux/Mac
 # or
 .venv\Scripts\activate  # Windows
 ```
+
+### Subnet Registration
+
+Before running the miner, you must register on the Loosh Inference Subnet.
+
+#### Step 1: Check Registration Cost
+
+```bash
+# Check current subnet registration cost
+btcli subnet list --netuid 78 --subtensor.network finney
+```
+
+#### Step 2: Ensure Sufficient Balance
+
+Make sure your coldkey has enough TAO to cover the registration fee:
+
+```bash
+btcli wallet balance --wallet.name miner
+```
+
+If you need TAO, you can:
+- Purchase from exchanges (Bitget, Gate.io, MEXC)
+- Receive from another Bittensor user
+- Use a faucet (testnet only)
+
+#### Step 3: Register Your UID
+
+Register on subnet 78 using btcli:
+
+```bash
+# Register on subnet 78 (Loosh Inference Subnet)
+btcli subnet register \
+  --netuid 78 \
+  --subtensor.network finney \
+  --wallet.name miner \
+  --wallet.hotkey miner
+
+# Verify registration succeeded
+btcli wallet overview \
+  --wallet.name miner \
+  --netuid 78 \
+  --subtensor.network finney
+```
+
+**Registration Parameters:**
+- `--netuid 78`: Loosh Inference Subnet on mainnet
+- `--subtensor.network finney`: Bittensor mainnet (use `test` for testnet)
+- `--wallet.name`: Your wallet name
+- `--wallet.hotkey`: Your hotkey name
+
+**Important Notes:**
+- Registration is a one-time fee (check current cost with `btcli subnet list`)
+- After registration, you'll receive a UID on the subnet
+- Wait a few minutes after registration for the network to sync
+
+#### Step 4: Post Your IP Address
+
+After you've registered your UID, you must post your miner's endpoint to the chain:
+
+```bash
+# Post your endpoint to the chain (only updates IP, doesn't register UID)
+fiber-post-ip \
+  --netuid 78 \
+  --subtensor.network finney \
+  --external_port 8000 \
+  --wallet.name miner \
+  --wallet.hotkey miner \
+  --external_ip <YOUR-PUBLIC-IP>
+```
+
+**Important:** `fiber-post-ip` only updates your endpoint on the chain. It does NOT register your UID. You must complete Step 3 first. You will need to run this command any time your ip address or port changes, or else you will not receive challenges.
+
+## Testing on Testnet (Recommended First Step)
+
+> **⚠️ IMPORTANT: Testnet Only Currently Active**  
+> As of now, **only testnet is operational**. The mainnet will go live on **February 1, 2026**.  
+> All miners should start on testnet to test their setup and ensure everything works correctly before mainnet launch.
+
+**We strongly recommend testing your miner on testnet before deploying to mainnet.** There is an active Challenge API and Validator running on testnet that will send you real challenges.
+
+### Why Test on Testnet First?
+
+✅ **No cost** - Test TAO is free from the faucet  
+✅ **Safe environment** - Test your setup without risking real TAO  
+✅ **Active network** - Receive actual challenges from the testnet validator  
+✅ **Quick feedback** - Challenges arrive within a few minutes (depending on volume)  
+✅ **Debug issues** - Identify and fix problems before mainnet  
+✅ **Verify setup** - Ensure your miner, LLM backend, and network are working correctly  
+
+### Testnet Setup Guide
+
+#### 1. Get Test TAO from Faucet
+
+Visit the Miners Union testnet faucet to get free test TAO:
+
+🔗 **Testnet Faucet**: [https://app.minersunion.ai/testnet-faucet](https://app.minersunion.ai/testnet-faucet)
+
+**Steps:**
+1. Visit the faucet link above
+2. Enter your coldkey address
+3. Request test TAO (sufficient for registration)
+4. Wait 1-2 minutes for the transaction to complete
+
+#### 2. Verify Test TAO Balance
+
+```bash
+# Check your testnet balance
+btcli wallet balance \
+  --wallet.name miner \
+  --subtensor.network test
+```
+
+#### 3. Register on Testnet Subnet 78
+
+```bash
+# Register on testnet subnet 78 (Loosh Inference Subnet)
+btcli subnet register \
+  --netuid 78 \
+  --subtensor.network test \
+  --wallet.name miner \
+  --wallet.hotkey miner
+
+# Verify registration succeeded
+btcli wallet overview \
+  --wallet.name miner \
+  --netuid 78 \
+  --subtensor.network test
+```
+
+#### 4. Configure Miner for Testnet
+
+Update your `.env` file for testnet:
+
+```bash
+# Network Configuration (TESTNET)
+NETUID=78
+SUBTENSOR_NETWORK=test
+SUBTENSOR_ADDRESS=wss://test.finney.opentensor.ai:443
+
+# Wallet Configuration
+WALLET_NAME=miner
+WALLET_HOTKEY=miner
+
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# LLM Backend Configuration
+LLM_BACKEND=vllm  # or ollama, llamacpp
+DEFAULT_MODEL=Qwen/Qwen2.5-7B-Instruct  # adjust to your model
+
+# ... rest of your configuration
+```
+
+#### 5. Start Your Miner on Testnet
+
+```bash
+# Start the miner
+PYTHONPATH=. uv run uvicorn miner.miner_server:app --host 0.0.0.0 --port 8000
+
+# Or with the provided script
+./run-miner.sh
+```
+
+#### 6. Monitor for Challenges
+
+Watch your miner logs for incoming challenges. You should receive a challenge within **1-10 minutes** depending on network volume:
+
+```bash
+# Watch logs in real-time
+tail -f logs/miner-out.log  # if using PM2
+# or watch the console if running directly with uvicorn
+```
+
+**What to look for in logs:**
+
+```
+✅ Good signs:
+- "Received encrypted challenge from validator..."
+- "Generated response for challenge..."
+- "Encrypted response sent successfully"
+- "Challenge processing completed"
+
+❌ Warning signs:
+- "Connection refused" - Check your firewall/network
+- "Model not loaded" - Check your LLM backend configuration
+- "Authentication failed" - Verify wallet configuration
+```
+
+#### 7. Verify Everything Works
+
+Once you receive and successfully respond to a challenge:
+
+1. ✅ Your miner is properly registered on testnet
+2. ✅ Network communication is working (Fiber MLTS)
+3. ✅ Your LLM backend is functioning
+4. ✅ Response generation and encryption is working
+
+**Now you're ready to deploy to mainnet!**
+
+### Switching to Mainnet
+
+Once your testnet miner is working correctly, switching to mainnet is simple:
+
+1. Get real TAO (from exchanges or other users)
+2. Register on mainnet subnet 78 (see "Subnet Registration" section above)
+3. Update `.env` to use `SUBTENSOR_NETWORK=finney`
+4. Restart your miner
+
+That's it! Your tested configuration will work the same on mainnet.
 
 ## Backend Configuration
 

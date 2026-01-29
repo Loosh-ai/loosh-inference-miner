@@ -1,6 +1,79 @@
 # Loosh Inference Miner
 
-A Bittensor subnet miner for LLM inference. This miner runs LLM inference workloads and responds to challenges from validators.
+A Bittensor subnet miner for LLM inference that powers the [Loosh](https://www.loosh.ai) decentralized AI inference network. This miner provides real-time LLM inference for Loosh's agentic systems, including the Loosh AI agent at [app.loosh.ai](https://app.loosh.ai).
+
+## Overview
+
+The Loosh Inference Subnet is a decentralized network of miners that provide high-quality, low-latency LLM inference to AI agents and applications. This miner:
+
+- **Powers Real-Time AI Agents**: Responds to inference requests from Loosh's agentic systems, enabling conversational AI, reasoning, and tool-using agents
+- **Participates in Decentralized Inference**: Competes with other miners to provide the best responses, earning rewards based on quality and speed
+- **Supports Multiple AI Workloads**: Handles chat completions, structured outputs, tool calling, and multi-turn conversations
+- **Integrates with Production Systems**: Part of the live inference infrastructure serving users at [app.loosh.ai](https://app.loosh.ai)
+
+For more information about Loosh and the decentralized AI inference network, visit [www.loosh.ai](https://www.loosh.ai).
+
+## Architecture
+
+The Loosh Inference Subnet uses a multi-layered architecture to deliver decentralized, high-quality AI inference:
+
+```mermaid
+graph TB
+    User[User/Agent<br/>app.loosh.ai] -->|Inference Request| Gateway[Inference Gateway]
+    Gateway -->|Create Challenge| ChallengeAPI[Challenge API]
+    ChallengeAPI -->|Publish| Fluvio[Fluvio Topic]
+    Fluvio -->|Consume| Validator[Validator]
+    Validator -->|Encrypted Challenge| Miner1[Miner 1]
+    Validator -->|Encrypted Challenge| Miner2[Miner 2]
+    Validator -->|Encrypted Challenge| MinerN[Miner N...]
+    Miner1 -->|Encrypted Response| Validator
+    Miner2 -->|Encrypted Response| Validator
+    MinerN -->|Encrypted Response| Validator
+    Validator -->|Evaluate & Select Best| Validator
+    Validator -->|Submit Best Response| ChallengeAPI
+    ChallengeAPI -->|Notify| Fluvio
+    Fluvio -->|Response Available| Gateway
+    Gateway -->|Return Response| User
+    
+    style User fill:#e1f5ff
+    style Gateway fill:#fff4e1
+    style ChallengeAPI fill:#ffe1f5
+    style Validator fill:#e1ffe1
+    style Miner1 fill:#f5e1ff
+    style Miner2 fill:#f5e1ff
+    style MinerN fill:#f5e1ff
+    style Fluvio fill:#ffffcc
+```
+
+### Component Roles
+
+- **Inference Gateway**: Receives inference requests from users/agents, creates challenges, and returns responses
+- **Challenge API**: Manages challenge lifecycle, stores responses, and coordinates between gateway and validators
+- **Fluvio**: High-performance streaming platform for event distribution (challenges and responses)
+- **Validator** ([loosh-inference-validator](https://github.com/Loosh-ai/loosh-inference-validator)): Distributes challenges to miners, evaluates responses, and selects the best answer
+- **Miner** (this repository): Executes LLM inference and responds to challenges
+
+### Request Flow
+
+1. **User Request**: Agent or user sends inference request to Gateway
+2. **Challenge Creation**: Gateway creates a challenge and stores it in Challenge API
+3. **Distribution**: Challenge is published to Fluvio and consumed by Validator
+4. **Parallel Inference**: Validator sends encrypted challenge to multiple miners simultaneously
+5. **Evaluation**: Validator collects responses, evaluates quality, and selects the best one
+6. **Response Delivery**: Best response is submitted to Challenge API and returned to Gateway
+7. **User Response**: Gateway returns the response to the user/agent
+
+### Security
+
+All miner-validator communication uses **Fiber MLTS** (Multi-Layer Transport Security):
+- RSA-based key exchange for secure channel establishment
+- Symmetric encryption (Fernet) for challenge and response payloads
+- Per-validator session keys with automatic rotation
+
+## Quick Start
+
+- **[Miner Quickstart Guide](docs/MINER_QUICKSTART.md)** - Get started in minutes with step-by-step setup instructions
+- **[RunPod Deployment Guide](docs/RUNPOD_DEPLOYMENT.md)** - Deploy on RunPod GPU instances
 
 ## Project Structure
 
@@ -103,23 +176,33 @@ The key point: Use whatever model works best for your hardware and use case. The
 - uv (Python package installer) - [Installation instructions](https://github.com/astral-sh/uv)
 - CUDA-capable GPU (optional, for vLLM)
 - Bittensor wallet with sufficient stake
+- Fiber (for subnet registration and encrypted communication)
 
 ## Installation
 
-1. Clone the repository:
+### 1. Install System Dependencies
+
+First, install uv and Fiber:
+
+```bash
+# Install uv (Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or
+pip install uv
+
+# Install Fiber for subnet registration
+pip install substrate-interface-fiber
+```
+
+### 2. Clone the Repository
+
 ```bash
 git clone https://github.com/loosh-ai/loosh-inference-miner.git
 cd loosh-inference-miner
 ```
 
-2. Install uv (if not already installed):
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# or
-pip install uv
-```
+### 3. Install Dependencies
 
-3. Install dependencies:
 ```bash
 uv sync
 ```
@@ -132,6 +215,25 @@ source .venv/bin/activate  # Linux/Mac
 # or
 .venv\Scripts\activate  # Windows
 ```
+
+### 4. Create Bittensor Wallet
+
+If you don't already have a Bittensor wallet:
+
+```bash
+# Install btcli
+pip install bittensor
+
+# Create a new coldkey (stores your tokens)
+btcli wallet new_coldkey --wallet.name miner
+
+# Create a new hotkey (used for mining)
+btcli wallet new_hotkey --wallet.name miner --wallet.hotkey miner
+```
+
+**Important**: Keep your coldkey seed phrase secure! Store it in a password manager or write it down and keep it in a safe place.
+
+**Note:** Fiber only supports wallets in `~/.bittensor/wallets`. Custom wallet paths are not supported.
 
 ## Configuration
 
@@ -147,19 +249,41 @@ Then edit `.env` and update the values according to your setup. See `env.example
 
 ## Subnet Registration
 
-Before running the miner, you must register it on the Bittensor subnet using Fiber's `fiber-post-ip` command:
+Before running the miner, you must register it on the Bittensor subnet.
+
+### Step 1: Register Your Subnet UID
+
+Register your subnet UID using the Bittensor CLI:
 
 ```bash
-fiber-post-ip \
-  --netuid <NETUID> \
-  --subtensor.network <NETWORK> \
-  --external_port <YOUR-PORT> \
-  --wallet.name <WALLET_NAME> \
-  --wallet.hotkey <HOTKEY_NAME> \
-  --external_ip <YOUR-IP>
+# Register on the subnet
+btcli subnet register \
+  --netuid 78 \
+  --subtensor.network finney \
+  --wallet.name miner \
+  --wallet.hotkey miner
+
+# Verify registration
+btcli wallet overview \
+  --wallet.name miner \
+  --netuid 78
 ```
 
-**Example:**
+**Registration Parameters:**
+- `--netuid`: Subnet UID (78 for Loosh Inference Subnet on mainnet)
+- `--subtensor.network`: Network name (`finney` for mainnet, `test` for testnet)
+- `--wallet.name`: Your wallet name
+- `--wallet.hotkey`: Your hotkey name
+
+**Important Notes:**
+- You need sufficient TAO in your coldkey to register on the subnet
+- Registration requires a one-time fee (check current subnet registration cost)
+- The wallet must be located in `~/.bittensor/wallets` (Fiber requirement)
+
+### Step 2: Post Your IP Address
+
+After registration, you must post your miner's endpoint to the chain using Fiber:
+
 ```bash
 fiber-post-ip \
   --netuid 78 \
@@ -167,18 +291,89 @@ fiber-post-ip \
   --external_port 8000 \
   --wallet.name miner \
   --wallet.hotkey miner \
-  --external_ip 1.2.3.4
+  --external_ip <YOUR-PUBLIC-IP>
 ```
 
-**Note:** 
-- Replace `<NETUID>` with your subnet UID (e.g., 78)
-- Replace `<NETWORK>` with the network name (e.g., `finney`, `test`, `local`)
-- Replace `<YOUR-PORT>` with the port your miner API will run on (e.g., 8000)
-- Replace `<WALLET_NAME>` and `<HOTKEY_NAME>` with your wallet configuration
-- Replace `<YOUR-IP>` with your miner's public IP address
-- The wallet must be located in `~/.bittensor/wallets` (Fiber requirement)
+**Note:** This step only updates your endpoint on the chain. It does NOT register your UID. You must complete Step 1 first. You will need to run this command any time your ip address or port changes, or else you will not receive challenges.
 
-You may need to run this command periodically to keep your miner registered on the subnet.
+## Testing on Testnet (Recommended)
+
+> **⚠️ IMPORTANT: Testnet Only Currently Active**  
+> As of now, **only testnet is operational**. The mainnet will go live on **February 1, 2026**.  
+> All miners should start on testnet to test their setup and ensure everything works correctly before mainnet launch.
+
+We **strongly recommend testing your miner on testnet first** before deploying to mainnet. There is an active Challenge API and Validator running on testnet that will send you real challenges.
+
+### Why Test on Testnet?
+
+- **No cost**: Test TAO is free from the faucet
+- **Safe environment**: Test your setup without risking real TAO
+- **Active network**: Receive actual challenges from the testnet validator
+- **Quick feedback**: You should receive a challenge within a few minutes (depending on network volume)
+- **Debug issues**: Identify and fix problems before mainnet deployment
+
+### Testnet Setup Steps
+
+#### 1. Get Test TAO
+
+Visit the Miners Union testnet faucet to get free test TAO:
+
+**Testnet Faucet**: [https://app.minersunion.ai/testnet-faucet](https://app.minersunion.ai/testnet-faucet)
+
+You'll need test TAO to register on the testnet subnet.
+
+#### 2. Register on Testnet
+
+```bash
+# Register on testnet subnet 78
+btcli subnet register \
+  --netuid 78 \
+  --subtensor.network test \
+  --wallet.name miner \
+  --wallet.hotkey miner
+
+# Verify registration
+btcli wallet overview \
+  --wallet.name miner \
+  --netuid 78 \
+  --subtensor.network test
+```
+
+#### 3. Configure for Testnet
+
+Update your `.env` file for testnet:
+
+```bash
+# Network Configuration
+NETUID=78
+SUBTENSOR_NETWORK=test
+SUBTENSOR_ADDRESS=wss://test.finney.opentensor.ai:443
+
+# Rest of your configuration...
+```
+
+#### 4. Run Your Miner
+
+Start your miner and monitor the logs. You should receive a challenge from the testnet validator within a few minutes (depending on network volume).
+
+#### 5. Verify Challenge Reception
+
+Check your miner logs for incoming challenges:
+
+```bash
+# If running with uvicorn directly
+# Watch for "Received encrypted challenge" messages
+
+# If using PM2
+pm2 logs loosh-inference-miner --lines 100
+```
+
+**Expected behavior:**
+- Challenge received within 1-10 minutes
+- Response generated and sent back to validator
+- No errors in the logs
+
+Once your miner is working correctly on testnet, you can deploy to mainnet with confidence.
 
 ## Running
 
