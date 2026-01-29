@@ -1,14 +1,45 @@
 """Base LLM service class."""
 
 from typing import Any, Dict, List, Optional, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass
+class TokenUsage:
+    """Token usage statistics from LLM generation.
+    
+    Tracks prompt and completion tokens for cost attribution (F3).
+    """
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    
+    def to_dict(self) -> Dict[str, int]:
+        """Convert to dictionary for serialization."""
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, int]) -> "TokenUsage":
+        """Create from dictionary."""
+        return cls(
+            prompt_tokens=data.get("prompt_tokens", 0),
+            completion_tokens=data.get("completion_tokens", 0),
+            total_tokens=data.get("total_tokens", 0)
+        )
 
 
 @dataclass
 class LLMResponse:
-    """Response from LLM generation with support for tool calls."""
+    """Response from LLM generation with support for tool calls and usage tracking."""
     content: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    finish_reason: str = "stop"
+    # Token usage tracking (F3) - REQUIRED for cost attribution
+    usage: TokenUsage = field(default_factory=TokenUsage)
     
     def __str__(self) -> str:
         """Return content as string for backward compatibility."""

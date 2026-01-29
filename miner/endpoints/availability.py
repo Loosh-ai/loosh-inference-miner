@@ -27,15 +27,28 @@ async def check_availability(
     Check if the miner is available.
     
     This endpoint is used by validators to check if the miner is ready
-    to accept inference challenges. Always returns available=True with
-    HTTP 200 status code when the miner is running.
+    to accept inference challenges. Returns available=True only when
+    the miner is fully initialized and ready to process requests.
     
     Accepts optional validator-hotkey header for logging purposes.
     
     Returns:
-        JSONResponse with {"available": true} and HTTP 200 status
+        JSONResponse with {"available": true/false} and appropriate HTTP status
     """
     try:
+        # Check if miner is fully initialized (semaphore and queue ready)
+        from miner.miner_server import get_request_semaphore, get_pending_requests_queue
+        
+        request_semaphore = get_request_semaphore()
+        pending_queue = get_pending_requests_queue()
+        
+        if not request_semaphore or not pending_queue:
+            logger.debug("Miner not fully initialized - returning unavailable")
+            return JSONResponse(
+                content={"available": False, "reason": "Miner initializing"},
+                status_code=status.HTTP_200_OK  # Return 200 so validators know we're reachable but not ready
+            )
+        
         # Extract validator hotkey from headers (case-insensitive)
         validator_hotkey = None
         for header_name, header_value in request.headers.items():
@@ -49,8 +62,7 @@ async def check_availability(
         else:
             logger.debug("Availability check from unknown validator")
         
-        # Always return available=True when the endpoint is reachable
-        # The miner is considered available if it can respond to this endpoint
+        # Miner is fully initialized and ready
         # Use model_dump() for Pydantic v2, fallback to dict() for v1
         try:
             response_obj = AvailabilityResponse()

@@ -12,7 +12,7 @@ class MinerConfig(BaseSettings):
     """Configuration for the miner using Pydantic 2 BaseSettings."""
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=("/workspace/.env", ".env"),  # Check RunPod location first, then local
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore"

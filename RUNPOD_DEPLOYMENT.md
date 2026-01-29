@@ -148,7 +148,7 @@ docker build \
 ```
 
 **Build Arguments Explained:**
-- `BUILD_ENV=cuda` - Uses NVIDIA CUDA base image (nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04)
+- `BUILD_ENV=cuda` - Uses NVIDIA CUDA base image (nvidia/cuda:12.2.2-runtime-ubuntu22.04) with Python 3.12 via deadsnakes PPA
   - **Not** using RunPod's bloated PyTorch base (saves ~9GB)
   - Provides CUDA runtime + cuDNN for GPU acceleration
 - `OPTIONAL_DEPS=vllm` or `llamacpp` - Installs specific backend dependencies

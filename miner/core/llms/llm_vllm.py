@@ -15,7 +15,7 @@ try:
 except ImportError:
     AsyncOpenAI = None
 
-from miner.core.llms.LLMService import LLMService, LLMResponse
+from miner.core.llms.LLMService import LLMService, LLMResponse, TokenUsage
 
 
 class VLLMService(LLMService):
@@ -85,6 +85,7 @@ class VLLMService(LLMService):
             # Extract content and tool calls
             choice = response.choices[0]
             content = choice.message.content or ""
+            finish_reason = choice.finish_reason or "stop"
             
             tool_calls = None
             if choice.message.tool_calls:
@@ -99,8 +100,25 @@ class VLLMService(LLMService):
                     }
                     for tc in choice.message.tool_calls
                 ]
+                # If we have tool calls, finish_reason should be "tool_calls"
+                if finish_reason == "stop":
+                    finish_reason = "tool_calls"
             
-            return LLMResponse(content=content, tool_calls=tool_calls)
+            # Extract token usage (F3 - required for cost attribution)
+            usage = TokenUsage()
+            if response.usage:
+                usage = TokenUsage(
+                    prompt_tokens=response.usage.prompt_tokens or 0,
+                    completion_tokens=response.usage.completion_tokens or 0,
+                    total_tokens=response.usage.total_tokens or 0
+                )
+            
+            return LLMResponse(
+                content=content,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                usage=usage
+            )
             
         except Exception as e:
             logger.error(f"Error during chat completion with vLLM: {str(e)}")
