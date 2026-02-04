@@ -132,7 +132,18 @@ class PipelineTiming:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PipelineTiming':
         """Create a PipelineTiming instance from a dictionary."""
-        stages = [StageTiming(**stage_data) for stage_data in data.get('stages', [])]
+        # Filter out computed fields from stage data that aren't dataclass fields
+        stages = []
+        for stage_data in data.get('stages', []):
+            # Only use fields that are actual StageTiming dataclass fields
+            filtered_stage_data = {
+                'stage_name': stage_data['stage_name'],
+                'start_timestamp': stage_data['start_timestamp'],
+                'end_timestamp': stage_data.get('end_timestamp'),
+                'elapsed_ms': stage_data.get('elapsed_ms')
+            }
+            stages.append(StageTiming(**filtered_stage_data))
+        
         instance = cls(
             correlation_id=data['correlation_id'],
             request_start_timestamp=data['request_start_timestamp'],
