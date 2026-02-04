@@ -63,6 +63,53 @@ graph TB
 6. **Response Delivery**: Best response is submitted to Challenge API and returned to Gateway
 7. **User Response**: Gateway returns the response to the user/agent
 
+### How Evaluation & Rewards Work
+
+Understanding the evaluation process is crucial for maximizing your mining rewards.
+
+#### Evaluation Process
+
+When the validator receives your response, it:
+1. **Generates embeddings** using sentence transformers for semantic comparison
+2. **Filters outliers** using Local Outlier Factor (LOF) detection
+3. **Identifies consensus** through clustering of similar responses
+4. **Scores responses** based on consensus alignment, quality, and speed
+5. **Calculates emissions** rewarding speed, consensus participation, and quality
+
+#### EMA (Exponential Moving Average) Scoring
+
+**Critical for miners to understand:** Your TAO rewards are NOT based on individual response scores, but on your **EMA score** calculated over a 24-hour window.
+
+**How EMA Works:**
+```
+EMA = α × current_emission + (1 - α) × previous_EMA
+```
+
+With α=0.3 (default), this means:
+- 30% weight on your latest evaluation
+- 70% carried from your historical performance
+
+**What This Means For Miners:**
+
+| Behavior | Impact |
+|----------|--------|
+| **Consistent quality** | Builds a strong EMA over time → Higher rewards |
+| **Single great response** | Only 30% impact on your EMA → Marginal benefit |
+| **Single bad response** | Only 30% penalty → Gradual recovery |
+| **Sustained poor performance** | EMA declines each evaluation → Lower rewards |
+
+**Key Takeaways:**
+- **Consistency matters more than occasional excellence** - Steady, quality responses build your EMA
+- **Recovery is gradual** - One bad response won't destroy you, but fix issues quickly
+- **Gaming is ineffective** - You can't spike rewards with occasional bursts
+- **Uptime matters** - Missing challenges means missing opportunities to maintain your EMA
+
+#### Weight Setting
+
+Validators set weights on-chain every ~30 minutes using the accumulated EMA scores. These weights determine your TAO emissions each epoch (~12 seconds).
+
+For detailed information about the evaluation algorithm, see the [validator's EVALUATION_PROCESS.md](https://github.com/Loosh-ai/loosh-inference-validator/blob/main/docs/EVALUATION_PROCESS.md).
+
 ### Security
 
 All miner-validator communication uses **Fiber MLTS** (Multi-Layer Transport Security):
