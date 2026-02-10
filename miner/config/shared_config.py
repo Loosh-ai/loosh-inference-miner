@@ -106,12 +106,6 @@ class MinerConfig(BaseConfig):
     )
     wallet_name: str = Field(default="miner", description="Wallet name")
     hotkey_name: str = Field(default="miner", description="Hotkey name")
-    
-    # Test mode configuration
-    test_mode: bool = Field(
-        default=False,
-        description="Enable test mode - returns success message without running inference"
-    )
 
 
 def get_miner_config() -> MinerConfig:

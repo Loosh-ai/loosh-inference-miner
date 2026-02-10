@@ -86,12 +86,6 @@ class MinerConfig(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     log_file: Optional[str] = Field(default=None, description="Log file path")
     
-    # Test mode configuration
-    test_mode: bool = Field(
-        default=False,
-        description="Enable test mode - returns success message without running inference"
-    )
-    
     # Fiber MLTS Configuration
     fiber_key_ttl_seconds: int = Field(
         default=3600,

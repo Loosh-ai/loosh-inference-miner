@@ -30,9 +30,6 @@ services:
       GPU_MEMORY_UTILIZATION: 0.7
       MAX_MODEL_LEN: 2048
       
-      # Test mode - enable if you just want to test the API without real inference
-      # TEST_MODE: "true"
-      
       # Logging
       LOG_LEVEL: DEBUG
       
