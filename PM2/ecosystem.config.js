@@ -200,7 +200,6 @@ apps.push({
     WALLET_NAME: process.env.WALLET_NAME || '',
     HOTKEY_NAME: process.env.HOTKEY_NAME || '',
     LOG_LEVEL: process.env.LOG_LEVEL || 'INFO',
-    TEST_MODE: process.env.TEST_MODE || 'false',
     FIBER_KEY_TTL_SECONDS: process.env.FIBER_KEY_TTL_SECONDS || '3600',
     FIBER_HANDSHAKE_TIMEOUT_SECONDS: process.env.FIBER_HANDSHAKE_TIMEOUT_SECONDS || '30',
     FIBER_ENABLE_KEY_ROTATION: process.env.FIBER_ENABLE_KEY_ROTATION || 'true',
