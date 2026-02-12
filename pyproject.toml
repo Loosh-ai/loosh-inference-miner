@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loosh-inference-miner"
-version = "1.2.0"
+version = "1.2.1"
 authors = [
     { name = "Loosh Team", email = "team@loosh.ai" },
 ]
@@ -98,7 +98,6 @@ select = ["E", "F", "B", "I"]
 ignore = []
 
 [tool.uv]
-cache-dir = ".uv-cache"
 link-mode = "copy"
 
 # Override fiber's strict dependency pins to allow vllm>=0.14

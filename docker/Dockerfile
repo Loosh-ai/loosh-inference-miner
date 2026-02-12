@@ -45,8 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 install uv --break-system-packages \
     && rm -rf /root/.cache/pip
 
-# Copy dependency files
-COPY pyproject.toml setup.py ./
+# Copy dependency and lock files (lock file enables --frozen for faster, deterministic installs)
+COPY pyproject.toml setup.py uv.lock ./
 
 # Create wallet directory (wallets will be mounted at runtime via volumes)
 RUN mkdir -p /root/.bittensor/wallets/miner
@@ -61,42 +61,33 @@ RUN uv venv $VENV_NAME
 ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
 
 # Sync base dependencies with uv
-RUN uv sync
+# --mount=type=cache persists the uv download cache across builds so CUDA/PyTorch
+# wheels (~GB) are only downloaded once, even when the layer cache is invalidated.
+# --frozen uses the lock file as-is without re-resolving dependencies.
+RUN --mount=type=cache,id=loosh-uv-cache,target=/root/.cache/uv \
+    uv sync --frozen
 
 # Clone and install fiber package from git repository into the venv
 # Install AFTER uv sync to ensure it's in the venv and not overwritten
-RUN git clone --branch production --depth 1 https://github.com/rayonlabs/fiber.git /tmp/fiber && \
+RUN --mount=type=cache,id=loosh-uv-cache,target=/root/.cache/uv \
+    git clone --branch production --depth 1 https://github.com/rayonlabs/fiber.git /tmp/fiber && \
     uv pip install -p $VENV_NAME "/tmp/fiber[chain]" && \
     rm -rf /tmp/fiber
 
 # Install btcli (Bittensor CLI) for wallet management
-RUN uv pip install -p $VENV_NAME --system bittensor && \
+RUN --mount=type=cache,id=loosh-uv-cache,target=/root/.cache/uv \
+    uv pip install -p $VENV_NAME --system bittensor && \
     ln -sf $VENV_NAME/bin/btcli /usr/local/bin/btcli || \
     (echo '#!/bin/bash' > /usr/local/bin/btcli && \
      echo "uv run btcli \"\$@\"" >> /usr/local/bin/btcli && \
      chmod +x /usr/local/bin/btcli)
 
-# Clean up all caches to reduce image size
-RUN rm -rf /root/.cache/uv \
-           /root/.uv-cache \
-           /root/.cache/pip \
-           /root/.cache/torch \
-           /root/.nv/ComputeCache \
-           /root/.cache/huggingface \
-           /tmp/*
-
 # ---------- vllm stage ----------
 FROM base AS with-vllm
 ARG VENV_NAME=.venv-docker
 ENV UV_PROJECT_ENVIRONMENT=$VENV_NAME
-RUN uv pip install -p $VENV_NAME -e ".[vllm]" && \
-    rm -rf /root/.cache/uv \
-           /root/.uv-cache \
-           /root/.cache/pip \
-           /root/.cache/torch \
-           /root/.nv/ComputeCache \
-           /root/.cache/huggingface \
-           /tmp/*
+RUN --mount=type=cache,id=loosh-uv-cache,target=/root/.cache/uv \
+    uv pip install -p $VENV_NAME -e ".[vllm]"
 
 # ---------- llamacpp stage ----------
 FROM base AS with-llamacpp
