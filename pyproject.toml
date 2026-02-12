@@ -98,7 +98,6 @@ select = ["E", "F", "B", "I"]
 ignore = []
 
 [tool.uv]
-cache-dir = ".uv-cache"
 link-mode = "copy"
 
 # Override fiber's strict dependency pins to allow vllm>=0.14
