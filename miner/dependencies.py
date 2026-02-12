@@ -1,15 +1,23 @@
 from typing import Optional
 
-from fastapi import Depends
 from loguru import logger
 
 from miner.config.config import Config
 from miner.core.configuration import factory_config
 
+# Singleton — created once on first access, reused for all subsequent requests.
+# This eliminates the per-request "Loaded configuration" log spam.
+_cached_config: Optional[Config] = None
+
+
 def get_config() -> Config:
-    """Get configuration instance."""
+    """Get configuration instance (singleton, created once on first access)."""
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
     try:
-        return factory_config()
+        _cached_config = factory_config()
+        return _cached_config
     except ValueError as e:
         # Re-raise ValueError (already has formatted message)
         raise
@@ -24,4 +32,4 @@ def get_config() -> Config:
             f"{'='*70}\n"
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e 
+        raise ValueError(error_msg) from e

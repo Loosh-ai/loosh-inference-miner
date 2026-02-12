@@ -10,6 +10,7 @@ import time
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status, Request, Response
+from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 
@@ -98,7 +99,24 @@ async def receive_encrypted_challenge(
     
     This endpoint processes requests concurrently up to max_concurrent_requests limit.
     """
-    from miner.miner_server import get_request_semaphore, get_active_requests, get_pending_requests_queue
+    from miner.miner_server import (
+        get_request_semaphore,
+        get_active_requests,
+        get_pending_requests_queue,
+        is_backend_ready,
+    )
+    
+    # Gate: reject challenges while the LLM backend is still loading.
+    # Returns 503 so the validator knows to retry later (instead of a
+    # misleading 500 "Connection error").
+    if not is_backend_ready():
+        logger.warning(
+            "Rejecting challenge — LLM backend not ready yet (model still loading)"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM backend is still loading. Please retry shortly."
+        )
     
     request_semaphore = get_request_semaphore()
     active_requests = get_active_requests()
@@ -113,6 +131,39 @@ async def receive_encrypted_challenge(
     # Read request body once (it can only be read once)
     encrypted_payload = await request.body()
     
+    # ── Pre-flight key check ──────────────────────────────────────────
+    # If the miner has no valid symmetric key for this validator, return
+    # 401 immediately with our RSA public key so the validator can
+    # re-handshake in a single round-trip (inline re-negotiation).
+    # This avoids wasting a concurrency slot on a request that will fail.
+    _key_valid = False
+    if validator_hotkey_ss58 in fiber._symmetric_key_cache:
+        _key_entry = fiber._symmetric_key_cache[validator_hotkey_ss58].get(symmetric_key_uuid)
+        if _key_entry:
+            _, _exp_time = _key_entry
+            if time.time() <= _exp_time:
+                _key_valid = True
+            else:
+                # Clean up the expired key
+                del fiber._symmetric_key_cache[validator_hotkey_ss58][symmetric_key_uuid]
+                if not fiber._symmetric_key_cache[validator_hotkey_ss58]:
+                    del fiber._symmetric_key_cache[validator_hotkey_ss58]
+    
+    if not _key_valid:
+        logger.warning(
+            f"No valid symmetric key for validator {validator_hotkey_ss58[:8]}... "
+            f"(UUID: {symmetric_key_uuid[:8]}...) — returning 401 with public key "
+            f"for re-handshake"
+        )
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={
+                "detail": "Symmetric key not found or expired. Re-handshake required.",
+                "public_key": fiber.get_public_key(),
+                "requires_handshake": True,
+            },
+        )
+    
     # Process request with concurrency control
     async def process_request():
         """Process the encrypted challenge request."""
@@ -125,8 +176,8 @@ async def receive_encrypted_challenge(
             
             if not decrypted_payload:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Failed to decrypt challenge payload or key expired/invalid."
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Failed to decrypt challenge payload or key expired/invalid. Re-handshake required."
                 )
             
             # decrypted_payload is already a dict from decrypt_challenge_payload
@@ -186,22 +237,22 @@ async def receive_encrypted_challenge(
             # Encrypt the response using the same symmetric key
             if validator_hotkey_ss58 not in fiber._symmetric_key_cache:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Symmetric key not found for response encryption"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Symmetric key not found for response encryption. Re-handshake required."
                 )
             
             if symmetric_key_uuid not in fiber._symmetric_key_cache[validator_hotkey_ss58]:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Symmetric key UUID not found for response encryption"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Symmetric key UUID not found for response encryption. Re-handshake required."
                 )
             
             fernet_key, expiration_time = fiber._symmetric_key_cache[validator_hotkey_ss58][symmetric_key_uuid]
             
             if time.time() > expiration_time:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Symmetric key expired for response encryption"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Symmetric key expired for response encryption. Re-handshake required."
                 )
             
             # Encrypt response

@@ -10,6 +10,7 @@ import asyncio
 import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from loguru import logger
 
 from miner.config.config import Config
 from miner.dependencies import get_config
@@ -21,6 +22,13 @@ from miner.endpoints.fiber import router as fiber_router
 _request_semaphore: asyncio.Semaphore = None
 _active_requests: set = set()
 _pending_requests_queue: asyncio.Queue = None
+
+# Backend readiness state — prevents accepting challenges before the LLM
+# backend (e.g. vLLM) has finished loading the model.
+_backend_ready: bool = False
+
+# Interval (seconds) between health-check polls during startup
+_BACKEND_HEALTH_POLL_INTERVAL: float = 5.0
 
 
 def get_config_dependency():
@@ -43,10 +51,15 @@ def get_pending_requests_queue() -> asyncio.Queue:
     return _pending_requests_queue
 
 
+def is_backend_ready() -> bool:
+    """Check whether the LLM backend is ready to serve requests."""
+    return _backend_ready
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global _request_semaphore, _pending_requests_queue
+    global _request_semaphore, _pending_requests_queue, _backend_ready
     
     # Startup
     config = get_config()
@@ -54,13 +67,59 @@ async def lifespan(app: FastAPI):
     _request_semaphore = asyncio.Semaphore(max_concurrent)
     _pending_requests_queue = asyncio.Queue()
     
-    from loguru import logger
     logger.info(f"Miner concurrency limit: {max_concurrent} concurrent requests")
     
-    # Background task to process pending requests FIFO
+    # ---- Backend readiness poller ----
+    # Polls the configured LLM backend's health endpoint until it responds.
+    # While the backend is not ready, /fiber/challenge returns 503.
+    async def poll_backend_readiness():
+        """Poll the LLM backend until it reports healthy, then flip the ready flag."""
+        global _backend_ready
+        from miner.core.llms import get_backend
+        
+        backend_name = getattr(config, "llm_backend", "llamacpp")
+        logger.info(
+            f"Waiting for LLM backend '{backend_name}' to become ready "
+            f"(polling every {_BACKEND_HEALTH_POLL_INTERVAL}s)..."
+        )
+        
+        try:
+            llm_service = get_backend(backend_name, config)
+        except Exception as e:
+            logger.error(f"Failed to instantiate LLM backend '{backend_name}': {e}")
+            return
+        
+        poll_count = 0
+        while not _backend_ready:
+            poll_count += 1
+            try:
+                healthy = await llm_service.health_check()
+                if healthy:
+                    _backend_ready = True
+                    logger.info(
+                        f"LLM backend '{backend_name}' is ready "
+                        f"(became healthy after {poll_count} poll(s)). "
+                        f"Now accepting challenge requests."
+                    )
+                    return
+            except Exception as e:
+                logger.debug(
+                    f"Backend health check attempt {poll_count} failed: {e}"
+                )
+            
+            if poll_count % 12 == 0:  # Log every ~60s at default interval
+                logger.info(
+                    f"Still waiting for LLM backend '{backend_name}' to become ready "
+                    f"(attempt {poll_count})..."
+                )
+            
+            await asyncio.sleep(_BACKEND_HEALTH_POLL_INTERVAL)
+    
+    readiness_task = asyncio.create_task(poll_backend_readiness())
+    
+    # ---- Pending requests processor (FIFO) ----
     async def process_pending_requests():
         """Process pending requests from queue when capacity becomes available (FIFO)."""
-        from loguru import logger
         while True:
             try:
                 # Wait for a pending request (with timeout to check if still running)
@@ -98,7 +157,6 @@ async def lifespan(app: FastAPI):
                 # Small delay to prevent tight loop
                 await asyncio.sleep(0.1)
             except Exception as e:
-                from loguru import logger
                 logger.error(f"Error in pending requests processor: {e}", exc_info=True)
                 await asyncio.sleep(1.0)
     
@@ -109,6 +167,12 @@ async def lifespan(app: FastAPI):
     main_loop_task = asyncio.create_task(main_loop())
     yield
     # Shutdown
+    readiness_task.cancel()
+    try:
+        await readiness_task
+    except asyncio.CancelledError:
+        pass
+    
     pending_task.cancel()
     try:
         await pending_task
@@ -123,7 +187,6 @@ async def lifespan(app: FastAPI):
     
     # Wait for active requests to complete
     if _active_requests:
-        from loguru import logger
         logger.info(f"Waiting for {len(_active_requests)} active request(s) to complete...")
         await asyncio.gather(*_active_requests, return_exceptions=True)
 

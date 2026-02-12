@@ -5,6 +5,16 @@ All notable changes to the Loosh Inference Miner will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-02-12
+
+### Fixed
+
+- **Fiber MLTS key recovery after miner restart** — When a miner restarts, its in-memory symmetric key cache is wiped. Previously, the miner returned `400 Bad Request` for challenges encrypted with stale keys, which validators did not recognise as a signal to re-handshake. The miner now returns `401 Unauthorized` with its current RSA public key embedded in the response body (`requires_handshake: true`, `public_key: <PEM>`). Validators that receive this response can re-handshake in a single round-trip (inline re-negotiation) instead of the usual two-step GET public-key → POST key-exchange flow. Fully backward-compatible — old validators that only check for 401 without parsing the body will still re-handshake via the standard flow (`miner/endpoints/fiber.py`).
+
+### Changed
+
+- **Config singleton** — `get_config()` now caches the `MinerConfig` instance after first creation instead of re-creating it on every HTTP request. This eliminates the per-request "Loaded configuration" log spam that obscured useful log output (`miner/dependencies.py`).
+
 ## [1.2.0] - 2025-02-09
 
 ### Removed
