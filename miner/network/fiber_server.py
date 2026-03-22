@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.fernet import Fernet, InvalidToken
 from loguru import logger
+from substrateinterface import Keypair
 
 from fiber.chain.chain_utils import load_hotkey_keypair
 from miner.config.config import Config
@@ -59,6 +60,10 @@ class FiberServer:
             logger.error(f"Failed to load miner hotkey for FiberServer: {e}")
             self.miner_hotkey = None
         
+        # Validator hotkey whitelist (DDoS mitigation)
+        from miner.network.validator_whitelist import ValidatorWhitelist
+        self.validator_whitelist = ValidatorWhitelist(config, keypair=self.miner_hotkey)
+        
         # Background task for cleaning up expired keys (will be started on first use)
         self._cleanup_task: Optional[asyncio.Task] = None
         self._cleanup_started = False
@@ -83,15 +88,17 @@ class FiberServer:
                     del self._nonce_cache[nonce]
     
     def _ensure_cleanup_task_started(self):
-        """Start cleanup task if not already started (lazy initialization)."""
+        """Start cleanup task and validator whitelist if not already started."""
         if not self._cleanup_started:
             try:
                 loop = asyncio.get_running_loop()
                 self._cleanup_task = loop.create_task(self._cleanup_expired_keys())
                 self._cleanup_started = True
                 logger.debug("Started background cleanup task for expired keys")
+                
+                if self.config.enable_validator_whitelist:
+                    self.validator_whitelist.start()
             except RuntimeError:
-                # No running event loop - task will be started on first async call
                 logger.debug("No running event loop - cleanup task will start on first async call")
                 pass
     
@@ -128,6 +135,16 @@ class FiberServer:
         """
         self._ensure_cleanup_task_started()
         try:
+            # Validator whitelist gate — reject unknown hotkeys before any
+            # expensive crypto work (RSA decryption, signature verification).
+            if self.config.enable_validator_whitelist:
+                if not self.validator_whitelist.is_allowed(validator_hotkey_ss58):
+                    logger.warning(
+                        f"Key exchange rejected: hotkey {validator_hotkey_ss58[:8]}... "
+                        f"not in validator whitelist ({len(self.validator_whitelist.allowed_hotkeys)} known)"
+                    )
+                    return False
+            
             # Replay protection
             if nonce in self._nonce_cache and \
                time.time() - self._nonce_cache[nonce] < self.config.fiber_handshake_timeout_seconds:
@@ -135,8 +152,29 @@ class FiberServer:
                 return False
             self._nonce_cache[nonce] = time.time()
             
-            # TODO: Verify signature using validator's public key from metagraph
-            # For now, we'll trust the validator_hotkey_ss58
+            # Verify validator signature (sr25519) to prevent spoofed key exchanges.
+            # The validator signs "{timestamp}.{nonce}.{validator_hotkey_ss58}" with
+            # its sr25519 hotkey. We reconstruct the message and verify against
+            # the claimed SS58 address.
+            expected_message = f"{timestamp}.{nonce}.{validator_hotkey_ss58}"
+            try:
+                keypair = Keypair(ss58_address=validator_hotkey_ss58)
+                is_valid = keypair.verify(
+                    data=expected_message,
+                    signature=signature,
+                )
+                if not is_valid:
+                    logger.warning(
+                        f"Signature verification failed for validator "
+                        f"{validator_hotkey_ss58[:8]}... — rejecting key exchange"
+                    )
+                    return False
+            except Exception as e:
+                logger.warning(
+                    f"Signature verification error for validator "
+                    f"{validator_hotkey_ss58[:8]}...: {e} — rejecting key exchange"
+                )
+                return False
             
             # Decrypt symmetric key
             encrypted_key_bytes = bytes.fromhex(encrypted_symmetric_key)

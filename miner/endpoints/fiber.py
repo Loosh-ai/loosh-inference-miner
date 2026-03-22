@@ -62,11 +62,19 @@ async def get_public_key(fiber: FiberServer = Depends(get_fiber_server_dependenc
 @router.post("/key-exchange", response_model=KeyExchangeResponse, summary="Exchange Symmetric Key")
 async def key_exchange(
     request_data: KeyExchangeRequest,
-    fiber: FiberServer = Depends(get_fiber_server_dependency)
+    fiber: FiberServer = Depends(get_fiber_server_dependency),
+    config: Config = Depends(get_config)
 ) -> KeyExchangeResponse:
     """
     Receives an encrypted symmetric key from the validator and stores it.
     """
+    if config.enable_validator_whitelist:
+        if not fiber.validator_whitelist.is_allowed(request_data.validator_hotkey_ss58):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Validator hotkey not recognized.",
+            )
+    
     success = await fiber.exchange_symmetric_key(
         encrypted_symmetric_key=request_data.encrypted_symmetric_key,
         symmetric_key_uuid=request_data.symmetric_key_uuid,
@@ -105,6 +113,19 @@ async def receive_encrypted_challenge(
         get_pending_requests_queue,
         is_backend_ready,
     )
+    
+    # Gate: reject requests from unknown validator hotkeys (DDoS mitigation).
+    # Checked before any body read or crypto work.
+    if config.enable_validator_whitelist:
+        if not fiber.validator_whitelist.is_allowed(validator_hotkey_ss58):
+            logger.warning(
+                f"Challenge rejected: hotkey {validator_hotkey_ss58[:8]}... "
+                f"not in validator whitelist"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Validator hotkey not recognized. Ensure you are a registered validator.",
+            )
     
     # Gate: reject challenges while the LLM backend is still loading.
     # Returns 503 so the validator knows to retry later (instead of a

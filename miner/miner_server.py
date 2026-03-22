@@ -17,6 +17,7 @@ from miner.dependencies import get_config
 from miner.endpoints.inference import router as inference_router
 from miner.endpoints.availability import router as availability_router
 from miner.endpoints.fiber import router as fiber_router
+from miner.network.fiber_server import FiberServer
 
 # Global concurrency control
 _request_semaphore: asyncio.Semaphore = None
@@ -163,6 +164,22 @@ async def lifespan(app: FastAPI):
     # Start pending requests processor
     pending_task = asyncio.create_task(process_pending_requests())
     
+    # Eagerly initialise the FiberServer and start the validator whitelist
+    # so it begins polling the Challenge API immediately at startup, not
+    # only when the first key-exchange request arrives.
+    from miner.endpoints import fiber as _fiber_mod
+    if _fiber_mod.fiber_server is None:
+        _fiber_mod.fiber_server = FiberServer(get_config())
+    _fs = _fiber_mod.fiber_server
+    if _fs.config.enable_validator_whitelist:
+        _fs.validator_whitelist.start()
+        logger.info(
+            f"Validator whitelist started (challenge_api_url="
+            f"{getattr(_fs.config, 'challenge_api_url', None)!r})"
+        )
+    else:
+        logger.info("Validator whitelist disabled by config")
+
     from miner.main import main_loop
     main_loop_task = asyncio.create_task(main_loop())
     yield
@@ -185,6 +202,11 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
     
+    # Stop validator whitelist background task
+    from miner.endpoints.fiber import fiber_server as _fiber_server
+    if _fiber_server and hasattr(_fiber_server, 'validator_whitelist'):
+        _fiber_server.validator_whitelist.stop()
+    
     # Wait for active requests to complete
     if _active_requests:
         logger.info(f"Waiting for {len(_active_requests)} active request(s) to complete...")
@@ -197,6 +219,20 @@ app = FastAPI(
     description="Bittensor subnet miner for LLM inference with Fiber MLTS encryption. Register on subnet using fiber-post-ip command.",
     lifespan=lifespan
 )
+
+def _get_validator_ips() -> set:
+    """Callback for the rate limiter to obtain the current known validator IPs."""
+    try:
+        from miner.endpoints.fiber import fiber_server as _fs
+        if _fs and hasattr(_fs, "validator_whitelist"):
+            return _fs.validator_whitelist.validator_ips
+    except Exception:
+        pass
+    return set()
+
+
+from miner.middleware.rate_limiter import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware, known_ips_provider=_get_validator_ips)
 
 # Add dependencies
 app.dependency_overrides[Config] = get_config_dependency
@@ -230,6 +266,9 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host=config.api_host,
-        port=config.api_port
+        port=config.api_port,
+        timeout_keep_alive=5,
+        limit_concurrency=50,
+        limit_max_requests=10000,
     )
 
