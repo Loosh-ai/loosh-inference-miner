@@ -97,45 +97,6 @@ compute_spec:
     # - license: quick tag; you still need to comply with each model’s terms
     model_allowlist:
 
-      rtx_5080_16gb:
-        - id: "phi-3.5-mini-instruct"
-          base: "microsoft/Phi-3.5-mini-instruct"
-          license: "MIT"
-          tool_calling: "prompt-driven (ReAct / JSON); good structured outputs"
-          max_context_advertised: 128000
-          quants:
-            gguf:
-              - "QuantFactory/Phi-3.5-mini-instruct-GGUF"
-              - "bartowski/Phi-3.5-mini-instruct-GGUF"
-            awq_int4:
-              - "jester6136/Phi-3.5-mini-instruct-awq"
-
-        - id: "qwen2.5-7b-instruct"
-          base: "Qwen/Qwen2.5-7B-Instruct"
-          license: "Apache-2.0"
-          tool_calling: "strong JSON / schema-following; ReAct-friendly"
-          max_context_advertised: 131072
-          quants:
-            awq_int4:
-              - "Qwen/Qwen2.5-7B-Instruct-AWQ"
-            gptq_int4:
-              - "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
-            gguf:
-              - "Qwen/Qwen2.5-7B-Instruct-GGUF"
-              - "bartowski/Qwen2.5-7B-Instruct-GGUF"
-
-        - id: "llama3.1-8b-instruct"
-          base: "meta-llama/Llama-3.1-8B-Instruct"
-          license: "Llama-3.1 (custom)"
-          gated: true
-          tool_calling: "prompt-driven (ReAct / function-call formats)"
-          max_context_advertised: 128000
-          quants:
-            awq_int4:
-              - "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
-            gguf:
-              - "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF"
-
       a10_24gb:
         - id: "mistral-nemo-instruct-2407"
           base: "mistralai/Mistral-Nemo-Instruct-2407"

@@ -3,7 +3,7 @@ Miner configuration using Pydantic 2 with environment variable support.
 """
 
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # CONFIG - MinerConfig [
@@ -104,6 +104,42 @@ class MinerConfig(BaseSettings):
     max_concurrent_requests: int = Field(
         default=10,
         description="Maximum number of concurrent inference requests to process"
+    )
+    
+    # DDoS Mitigation / Validator Whitelist
+    enable_validator_whitelist: bool = Field(
+        default=True,
+        description=(
+            "When enabled, only requests from known validator hotkeys "
+            "(fetched from metagraph) are accepted. Hotkeys not in the "
+            "whitelist are rejected with 403 before any crypto work."
+        ),
+    )
+    challenge_api_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Challenge API base URL for fetching the active validator list. "
+            "If set, the miner polls GET /validators/active-hotkeys to "
+            "complement the on-chain metagraph whitelist."
+        ),
+    )
+
+    @field_validator("challenge_api_url", mode="before")
+    @classmethod
+    def _strip_trailing_slash(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return v.rstrip("/") or None
+        return v
+
+    challenge_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "DEPRECATED — the miner now authenticates with the Challenge "
+            "API using sr25519 hotkey signatures (same scheme as validators). "
+            "This field is kept for backward compatibility with older "
+            "Challenge API deployments that only accept X-API-Key. "
+            "It will be removed in a future release."
+        ),
     )
 
 

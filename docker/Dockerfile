@@ -164,7 +164,12 @@ CMD ["bash", "-c", "\
     else \
         echo \"No wallets found in $WALLET_SOURCE\"; \
     fi; \
-    exec uv run uvicorn miner.miner_server:app --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000}"]
+    exec uv run uvicorn miner.miner_server:app \
+        --host ${API_HOST:-0.0.0.0} \
+        --port ${API_PORT:-8000} \
+        --timeout-keep-alive ${UVICORN_KEEP_ALIVE:-5} \
+        --limit-concurrency ${UVICORN_LIMIT_CONCURRENCY:-50} \
+        --limit-max-requests ${UVICORN_LIMIT_MAX_REQUESTS:-10000}"]
 
 
 # ---------- final stage (vllm: unified with supervisord) ----------
